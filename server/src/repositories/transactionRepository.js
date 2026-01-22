@@ -1,93 +1,103 @@
+// server/src/repositories/transactionRepository.js
 const db = require('../config/db');
 
 class TransactionRepository {
-    async create({ userId, categoryId, amount, description, transactionDate }) {
-        const query = `
-            INSERT INTO transactions (user_id, category_id, amount, description, transaction_date)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING *;
+    // Agora aceita companyId, accountId e contactId
+    async create({ companyId, userId, accountId, categoryId, contactId, amount, description, date, type }) {
+        const client = await db.pool.connect();
+        
+        try {
+            await client.query('BEGIN');
+
+            // 1. Cria a Transação
+            // Nota: Se for 'expense', o amount deve vir negativo do frontend ou tratado aqui. 
+            // Para simplificar, assumimos que o Controller manda negativo para despesa.
+            const query = `
+                INSERT INTO transactions 
+                (company_id, user_id, account_id, category_id, contact_id, amount, description, transaction_date)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING *;
+            `;
+            const values = [companyId, userId, accountId, categoryId, contactId, amount, description, date];
+            const result = await client.query(query, values);
+            const transaction = result.rows[0];
+
+            // 2. Atualiza o Saldo da Conta Bancária vinculada
+            // Isso garante que o saldo do banco reflita o lançamento
+            const updateAccountQuery = `
+                UPDATE accounts 
+                SET current_balance = current_balance + $1 
+                WHERE id = $2 AND company_id = $3;
+            `;
+            await client.query(updateAccountQuery, [amount, accountId, companyId]);
+
+            await client.query('COMMIT');
+            return transaction;
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    async findAll({ companyId, startDate, endDate, accountId }) {
+        let query = `
+            SELECT t.*, 
+                   c.name as category_name, c.color as category_color,
+                   a.name as account_name,
+                   ct.name as contact_name
+            FROM transactions t
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN accounts a ON t.account_id = a.id
+            LEFT JOIN contacts ct ON t.contact_id = ct.id
+            WHERE t.company_id = $1
         `;
-        const values = [userId, categoryId, amount, description, transactionDate];
-        const result = await db.query(query, values);
+        
+        const params = [companyId];
+        let paramIndex = 2;
+
+        if (startDate && endDate) {
+            query += ` AND t.transaction_date BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
+            params.push(startDate, endDate);
+            paramIndex += 2;
+        }
+
+        if (accountId) {
+            query += ` AND t.account_id = $${paramIndex}`;
+            params.push(accountId);
+        }
+
+        query += ` ORDER BY t.transaction_date DESC, t.created_at DESC`;
+
+        const result = await db.query(query, params);
+        return result.rows;
+    }
+
+    // Dashboard: Saldo consolidado por Conta
+    async getBalancesByAccount(companyId) {
+        const query = `
+            SELECT id, name, type, current_balance 
+            FROM accounts 
+            WHERE company_id = $1 AND is_active = true
+        `;
+        const result = await db.query(query, [companyId]);
+        return result.rows;
+    }
+
+    // Dashboard: Fluxo de Caixa (Entradas vs Saídas)
+    async getCashFlow(companyId, startDate, endDate) {
+        const query = `
+            SELECT 
+                SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as total_income,
+                SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) as total_expense
+            FROM transactions
+            WHERE company_id = $1 
+            AND transaction_date BETWEEN $2 AND $3
+        `;
+        const result = await db.query(query, [companyId, startDate, endDate]);
         return result.rows[0];
-    }
-
-    async findAllByUserId(userId, limit = 10) {
-        const query = `
-            SELECT 
-                t.id, 
-                t.amount, 
-                t.description, 
-                t.transaction_date,
-                c.name as category_name,
-                c.color as category_color,
-                c.type as type
-            FROM transactions t
-            LEFT JOIN categories c ON t.category_id = c.id
-            WHERE t.user_id = $1
-            ORDER BY t.transaction_date DESC
-            LIMIT $2
-        `;
-        const result = await db.query(query, [userId, limit]);
-        return result.rows;
-    }
-
-    async getDashboardSummary(userId) {
-        // Query Agregadora: Calcula Entradas, Saídas e Saldo em uma única ida ao banco
-        const query = `
-            SELECT 
-                COALESCE(SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END), 0) as total_income,
-                COALESCE(SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END), 0) as total_expense
-            FROM transactions t
-            LEFT JOIN categories c ON t.category_id = c.id
-            WHERE t.user_id = $1
-        `;
-        const result = await db.query(query, [userId]);
-        const { total_income, total_expense } = result.rows[0];
-        
-        // Conversão de tipos (Postgres retorna SUM como string em alguns drivers, garantimos float)
-        const income = parseFloat(total_income);
-        const expense = parseFloat(total_expense);
-        
-        return {
-            income,
-            expense,
-            balance: income - expense
-        };
-    }
-
-    async getExpensesByCategory(userId) {
-        const query = `
-            SELECT 
-                c.name, 
-                c.color, 
-                SUM(t.amount) as total
-            FROM transactions t
-            JOIN categories c ON t.category_id = c.id
-            WHERE t.user_id = $1 AND c.type = 'expense'
-            GROUP BY c.name, c.color
-            ORDER BY total DESC
-        `;
-        const result = await db.query(query, [userId]);
-        return result.rows;
-    }
-
-    async getMonthlyEvolution(userId) {
-        // Query complexa para agrupar por mês (YYYY-MM) e pivotar Receita/Despesa
-        const query = `
-            SELECT 
-                TO_CHAR(transaction_date, 'YYYY-MM') as month,
-                SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END) as income,
-                SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END) as expense
-            FROM transactions t
-            JOIN categories c ON t.category_id = c.id
-            WHERE t.user_id = $1 
-            AND t.transaction_date >= NOW() - INTERVAL '6 months'
-            GROUP BY month
-            ORDER BY month ASC
-        `;
-        const result = await db.query(query, [userId]);
-        return result.rows;
     }
 }
 

@@ -1,25 +1,32 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Verifica se estamos em produção ou dev para ajustar configurações SSL se necessário
-const isProduction = process.env.NODE_ENV === 'production';
-
-// Pega a string de conexão do .env
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
     console.error('❌ ERRO CRÍTICO: DATABASE_URL não definida no arquivo .env');
-    console.error('   Certifique-se de criar o arquivo .server/.env com a string de conexão do NeonDB.');
     process.exit(1);
 }
 
+// LÓGICA HÍBRIDA (NeonDB vs Local Docker)
+// ----------------------------------------
+// O NeonDB sempre tem 'neon.tech' (ou similar) na URL e EXIGE SSL.
+// O Docker local geralmente roda sem SSL na rede interna (http).
+const isNeonDB = connectionString.includes('neon.tech') || connectionString.includes('aws.neon');
+
+// Se for Neon, ativa SSL com rejectUnauthorized false (padrão serverless).
+// Se for Local, desativa SSL (false) para evitar erro de "connection reset".
+const sslConfig = isNeonDB ? { rejectUnauthorized: false } : false;
+
 const pool = new Pool({
     connectionString,
-    // O NeonDB EXIGE SSL. 
-    // rejectUnauthorized: false é necessário em muitos ambientes de dev/container
-    // para aceitar o certificado do Neon sem configuração de CA local.
-    ssl: {
-        rejectUnauthorized: false 
+    ssl: sslConfig
+});
+
+pool.on('connect', () => {
+    // Log opcional para você saber onde conectou
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`🔌 Conectado ao banco: ${isNeonDB ? 'NeonDB (Nuvem) ☁️' : 'Postgres Local 🏠'}`);
     }
 });
 

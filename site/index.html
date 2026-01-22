@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance - Seu Controle Financeiro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #4F46E5 0%, #10B981 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <nav class="bg-white shadow-sm py-4">
+        <div class="container mx-auto px-6 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-wallet text-indigo-600 text-2xl"></i>
+                <span class="text-xl font-bold text-gray-900">Finance</span>
+            </div>
+            <a href="#" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800">Login</a>
+        </div>
+    </nav>
+
+    <header class="container mx-auto px-6 py-16 text-center md:py-24">
+        <h1 class="text-4xl md:text-6xl font-extrabold text-gray-900 mb-6 tracking-tight">
+            O controle do seu dinheiro, <br>
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-green-500">direto no seu bolso.</span>
+        </h1>
+        <p class="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+            Organize gastos, defina metas e acesse tudo online com nossa tecnologia PWA. Leve, rápido e sem instalações pesadas.
+        </p>
+        <div class="flex flex-col md:flex-row justify-center gap-4">
+            <a href="https://finance.app.ledcloud.com.br/register" class="bg-indigo-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">
+                Começar Grátis
+            </a>
+            <a href="https://finance.app.ledcloud.com.br" class="bg-white text-gray-700 border border-gray-300 px-8 py-3 rounded-full font-semibold hover:bg-gray-100 transition">
+                Ver Demo
+            </a>
+        </div>
+    </header>
+
+    <section id="demo" class="bg-white py-16 border-y border-gray-200">
+        <div class="container mx-auto px-6 max-w-4xl">
+            <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-8 md:p-10 text-center shadow-sm relative overflow-hidden">
+                <div class="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">LIVE DEMO</div>
+                
+                <h2 class="text-2xl font-bold text-gray-900 mb-4">🔓 Teste sem compromisso</h2>
+                <p class="text-gray-600 mb-8">Acesse o ambiente de demonstração agora mesmo com as credenciais abaixo:</p>
+                
+                <div class="grid md:grid-cols-2 gap-6 bg-white p-6 rounded-xl border border-indigo-100 shadow-sm text-left">
+                    <div>
+                        <p class="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Usuário / E-mail</p>
+                        <div class="flex items-center justify-between bg-gray-50 p-3 rounded border border-gray-200">
+                            <code class="text-indigo-700 font-mono">demo@empresa.com.br</code>
+                            <button onclick="copyToClipboard('demo@empresa.com.br')" class="text-gray-400 hover:text-indigo-600 transition" title="Copiar">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Senha</p>
+                        <div class="flex items-center justify-between bg-gray-50 p-3 rounded border border-gray-200">
+                            <code class="text-indigo-700 font-mono">demo@demo</code>
+                            <button onclick="copyToClipboard('demo@demo')" class="text-gray-400 hover:text-indigo-600 transition" title="Copiar">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <a href="https://finance.app.ledcloud.com.br" class="inline-flex items-center justify-center gap-2 text-indigo-600 font-bold hover:underline text-lg">
+                        Acessar Aplicação <i class="fa-solid fa-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="py-20 bg-gray-50">
+        <div class="container mx-auto px-6">
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition">
+                    <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center mb-4 text-xl">
+                        <i class="fa-solid fa-mobile-screen"></i>
+                    </div>
+                    <h3 class="font-bold text-lg mb-2">Tecnologia PWA</h3>
+                    <p class="text-gray-600 text-sm">Instale direto pelo navegador. Não ocupa memória e funciona como um app nativo.</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition">
+                    <div class="w-12 h-12 bg-green-100 text-green-600 rounded-lg flex items-center justify-center mb-4 text-xl">
+                        <i class="fa-solid fa-chart-pie"></i>
+                    </div>
+                    <h3 class="font-bold text-lg mb-2">Gráficos Claros</h3>
+                    <p class="text-gray-600 text-sm">Entenda para onde vai seu dinheiro com visualizações simples e diretas.</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition">
+                    <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-lg flex items-center justify-center mb-4 text-xl">
+                        <i class="fa-solid fa-bolt"></i>
+                    </div>
+                    <h3 class="font-bold text-lg mb-2">Modo Offline</h3>
+                    <p class="text-gray-600 text-sm">Sem internet? Lance seus gastos e o app sincroniza quando conectar.</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition">
+                    <div class="w-12 h-12 bg-gray-100 text-gray-600 rounded-lg flex items-center justify-center mb-4 text-xl">
+                        <i class="fa-solid fa-lock"></i>
+                    </div>
+                    <h3 class="font-bold text-lg mb-2">Privacidade</h3>
+                    <p class="text-gray-600 text-sm">Seus dados financeiros são criptografados e visíveis apenas para você.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="py-16 bg-white">
+        <div class="container mx-auto px-6 max-w-4xl">
+            <h3 class="text-2xl font-bold text-center mb-10">Links de Acesso Rápido</h3>
+            <div class="overflow-hidden border border-gray-200 rounded-lg shadow-sm">
+                <table class="min-w-full bg-white text-left text-sm text-gray-500">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-4 font-medium text-gray-900">Recurso</th>
+                            <th scope="col" class="px-6 py-4 font-medium text-gray-900 hidden sm:table-cell">Descrição</th>
+                            <th scope="col" class="px-6 py-4 font-medium text-gray-900 text-right">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 border-t border-gray-100">
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 font-medium text-gray-900">Login / App</td>
+                            <td class="px-6 py-4 hidden sm:table-cell">Acesso diário ao sistema Finance</td>
+                            <td class="px-6 py-4 text-right">
+                            <a href="https://finance.app.ledcloud.com.br" class="text-indigo-600 hover:text-indigo-900 font-semibold">Acessar <i class="fa-solid fa-external-link-alt ml-1"></i></a>
+                            </td>
+                        </tr>
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 font-medium text-gray-900">Instalação PWA</td>
+                            <td class="px-6 py-4 hidden sm:table-cell">Guia de como instalar no iOS/Android</td>
+                            <td class="px-6 py-4 text-right">
+                            <a href="#" class="text-indigo-600 hover:text-indigo-900 font-semibold">Ler Guia</a>
+                            </td>
+                        </tr>
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 font-medium text-gray-900">Suporte</td>
+                            <td class="px-6 py-4 hidden sm:table-cell">Central de ajuda e contato</td>
+                            <td class="px-6 py-4 text-right">
+                                <a href="#" class="text-indigo-600 hover:text-indigo-900 font-semibold">Ajuda</a>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section class="gradient-bg py-20 text-center text-white">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold mb-4">Pronto para organizar sua vida?</h2>
+            <p class="mb-8 opacity-90 max-w-xl mx-auto">Junte-se a milhares de usuários que saíram do vermelho com o Finance.</p>
+            <button class="bg-white text-indigo-600 px-8 py-3 rounded-full font-bold shadow-lg hover:bg-gray-100 transition transform hover:-translate-y-1">
+                Criar Minha Conta Grátis
+            </button>
+        </div>
+    </section>
+
+    <footer class="bg-gray-900 text-gray-400 py-8">
+        <div class="container mx-auto px-6 text-center text-sm">
+            <p class="mb-2">&copy; 2026 Finance PWA by. <a href="https://leonardobiasoli.com.br">LED Cloud</a>. Todos os direitos reservados.</p>
+            <div class="space-x-4">
+                <a href="#" class="hover:text-white transition">Privacidade</a>
+                <a href="#" class="hover:text-white transition">Termos</a>
+                <a href="#" class="hover:text-white transition">Contato</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copiado: ' + text);
+            }).catch(err => {
+                console.error('Erro ao copiar', err);
+            });
+        }
+    </script>
+</body>
+</html>

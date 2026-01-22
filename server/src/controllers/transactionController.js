@@ -1,75 +1,87 @@
+// server/src/controllers/transactionController.js
 const transactionRepository = require('../repositories/transactionRepository');
-const categoryRepository = require('../repositories/categoryRepository');
-const investmentRepository = require('../repositories/investmentRepository'); // <--- IMPORT NOVO
 
 class TransactionController {
-    async getDashboard(req, res) {
-        try {
-            const userId = req.user.id;
-            
-            // Agora buscamos também o resumo de investimentos em paralelo
-            const [summary, recentTransactions, categories, investmentSummary] = await Promise.all([
-                transactionRepository.getDashboardSummary(userId),
-                transactionRepository.findAllByUserId(userId),
-                categoryRepository.findAllByUserId(userId),
-                investmentRepository.getSummary(userId) // <--- BUSCA NOVA
-            ]);
-
-            // Prepara o objeto de resposta unificado
-            res.json({
-                summary: {
-                    ...summary,
-                    totalInvested: Number(investmentSummary.total_current) || 0 // Adiciona o total atual dos ativos
-                },
-                recentTransactions,
-                categories
-            });
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ error: 'Erro ao carregar dashboard' });
-        }
-    }
-
     async create(req, res) {
         try {
-            const userId = req.user.id;
-            const { categoryId, amount, description, transactionDate } = req.body;
+            // Segurança SaaS: Pega o ID da empresa do Token, não do corpo da requisição
+            const { companyId, id: userId } = req.user;
+            
+            const { 
+                accountId, categoryId, contactId, 
+                amount, description, date, type 
+            } = req.body;
 
-            if (!categoryId || !amount || !transactionDate) {
-                return res.status(400).json({ error: 'Dados incompletos.' });
+            // Validação básica de B2B
+            if (!accountId) {
+                return res.status(400).json({ error: 'Selecione uma conta bancária/caixa para movimentar.' });
             }
 
+            // Tratamento de valor (Entrada vs Saída)
+            // Se o frontend mandar type='expense', forçamos o valor negativo
+            let finalAmount = parseFloat(amount);
+            if (type === 'expense' && finalAmount > 0) finalAmount *= -1;
+            if (type === 'income' && finalAmount < 0) finalAmount *= -1;
+
             const transaction = await transactionRepository.create({
+                companyId,
                 userId,
+                accountId,
                 categoryId,
-                amount,
+                contactId,
+                amount: finalAmount,
                 description,
-                transactionDate
+                date
             });
 
             res.status(201).json(transaction);
         } catch (error) {
             console.error(error);
-            res.status(500).json({ error: 'Erro ao criar transação' });
+            res.status(500).json({ error: 'Erro ao criar transação.' });
         }
     }
 
-    async getCharts(req, res) {
+    async index(req, res) {
         try {
-            const userId = req.user.id;
-            
-            const [expensesByCategory, monthlyEvolution] = await Promise.all([
-                transactionRepository.getExpensesByCategory(userId),
-                transactionRepository.getMonthlyEvolution(userId)
+            const { companyId } = req.user;
+            const { startDate, endDate, accountId } = req.query;
+
+            const transactions = await transactionRepository.findAll({
+                companyId,
+                startDate,
+                endDate,
+                accountId
+            });
+
+            res.json(transactions);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Erro ao buscar transações.' });
+        }
+    }
+
+    async getDashboard(req, res) {
+        try {
+            const { companyId } = req.user;
+            const { startDate, endDate } = req.query;
+
+            // Buscando dados paralelos para performance
+            const [accounts, cashFlow] = await Promise.all([
+                transactionRepository.getBalancesByAccount(companyId),
+                transactionRepository.getCashFlow(companyId, startDate, endDate)
             ]);
 
             res.json({
-                expensesByCategory,
-                monthlyEvolution
+                accounts,
+                cashFlow: {
+                    income: cashFlow.total_income || 0,
+                    expense: cashFlow.total_expense || 0,
+                    balance: (parseFloat(cashFlow.total_income || 0) + parseFloat(cashFlow.total_expense || 0))
+                }
             });
         } catch (error) {
             console.error(error);
-            res.status(500).json({ error: 'Erro ao carregar gráficos' });
+            res.status(500).json({ error: 'Erro ao carregar dashboard.' });
         }
     }
 }
