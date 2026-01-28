@@ -207,3 +207,123 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_path TEXT;
 -- Adiciona colunas para recuperação de senha
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires TIMESTAMP;
+
+-- 1. Tabela de Tarefas (Tasks)
+CREATE TABLE IF NOT EXISTS tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status VARCHAR(20) DEFAULT 'todo', -- 'todo', 'in_progress', 'done'
+    priority VARCHAR(20) DEFAULT 'normal', -- 'low', 'normal', 'high'
+    due_date TIMESTAMP WITH TIME ZONE, -- Se tiver data, aparece na agenda
+    assigned_to UUID REFERENCES users(id), -- Quem vai fazer
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Tabela de Eventos Manuais da Agenda (Calendar Events)
+CREATE TABLE IF NOT EXISTS calendar_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    color VARCHAR(20) DEFAULT '#3b82f6', -- Azul padrão
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_tasks_tenant ON tasks(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_tenant ON calendar_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_dates ON calendar_events(start_date, end_date);
+
+-- 1. Melhorar Tabela de Clientes (Mais dados para CRM e NFE)
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'lead'; -- 'lead', 'active', 'inactive', 'churned'
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS source VARCHAR(50); -- 'google', 'instagram', 'indication', 'other'
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS address VARCHAR(255);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS state VARCHAR(2);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS zip_code VARCHAR(10);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS notes TEXT; -- Notas gerais fixas
+
+-- 2. Tabela de Interações (Timeline do CRM)
+CREATE TABLE IF NOT EXISTS client_interactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id), -- Quem registrou (vendedor)
+    type VARCHAR(20) NOT NULL, -- 'call', 'meeting', 'email', 'whatsapp', 'note'
+    description TEXT NOT NULL,
+    date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);
+CREATE INDEX IF NOT EXISTS idx_interactions_client ON client_interactions(client_id);
+
+-- 1. Melhorar Tabela de Produtos
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sku VARCHAR(50); -- Código único
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER DEFAULT 5; -- Estoque mínimo para alerta
+ALTER TABLE products ADD COLUMN IF NOT EXISTS unit VARCHAR(10) DEFAULT 'un'; -- un, kg, lt, m
+ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(50); -- Categoria do produto
+
+-- 2. Tabela de Movimentações de Estoque (Histórico)
+CREATE TABLE IF NOT EXISTS inventory_movements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    type VARCHAR(10) NOT NULL, -- 'in' (entrada), 'out' (saída)
+    quantity INTEGER NOT NULL,
+    reason VARCHAR(50), -- 'purchase', 'sale', 'adjustment', 'return'
+    notes TEXT,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory_movements(product_id);
+
+-- 1. Melhorar Tabela de OS (Campos Financeiros e Técnicos)
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS technician_id UUID REFERENCES users(id); -- Quem fez
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS total_amount NUMERIC(10, 2) DEFAULT 0.00;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS discount NUMERIC(10, 2) DEFAULT 0.00;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS notes TEXT; -- Observações internas
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP WITH TIME ZONE;
+
+-- 2. Tabela de Itens da OS (Produtos/Serviços usados)
+CREATE TABLE IF NOT EXISTS service_order_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    description VARCHAR(255), -- Caso seja um item avulso ou nome do produto
+    quantity NUMERIC(10, 2) NOT NULL DEFAULT 1,
+    unit_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_os_items_order ON service_order_items(service_order_id);
+
+-- 1. Melhorar Tabela de Tenants (Dados da Empresa para Impressão)
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address VARCHAR(255);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS document VARCHAR(50); -- CNPJ
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_contact VARCHAR(100);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(100);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS footer_message TEXT DEFAULT 'Obrigado pela preferência!';
+
+-- 2. Melhorar Tabela de OS (Campos Específicos da Imagem)
+-- identifier = Placa, Serial ou Patrimônio
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS identifier VARCHAR(50); 
+-- mileage = KM ou Medidor
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS mileage VARCHAR(50);
+-- brand = Marca/Modelo
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS brand VARCHAR(100);

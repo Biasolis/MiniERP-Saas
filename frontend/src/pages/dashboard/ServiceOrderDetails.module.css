@@ -1,0 +1,23 @@
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.backBtn { background: transparent; border: none; cursor: pointer; display: flex; gap: 5px; color: #6b7280; font-weight: 500; }
+.btnPrint { background: white; border: 1px solid #d1d5db; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; gap: 5px; align-items: center; }
+.btnFinish { background: #059669; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; gap: 5px; align-items: center; font-weight: 600; }
+
+.gridContainer { display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; }
+@media(max-width: 800px) { .gridContainer { grid-template-columns: 1fr; } }
+
+.card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+.divider { height: 1px; background: #e5e7eb; margin: 10px 0; }
+.badge { padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; text-transform: uppercase; font-weight: bold; }
+.badge.open { background: #dbeafe; color: #1e40af; }
+.badge.completed { background: #d1fae5; color: #065f46; }
+
+.input { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; }
+.btnAdd { background: var(--primary-color); color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; display: flex; justify-content: center; gap: 5px; font-weight: 600; }
+
+.itemTable { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.itemTable th { text-align: left; border-bottom: 2px solid #f3f4f6; padding: 8px; color: #6b7280; font-size: 0.85rem; }
+.itemTable td { border-bottom: 1px solid #f3f4f6; padding: 10px 8px; font-size: 0.9rem; }
+
+.totalBox { margin-top: 20px; padding-top: 20px; border-top: 2px dashed #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+.totalBox h2 { color: var(--primary-color); }

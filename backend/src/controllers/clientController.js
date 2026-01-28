@@ -1,129 +1,163 @@
 const { query } = require('../config/db');
 
-// ==========================================
-// 1. LISTAR CLIENTES/FORNECEDORES
-// ==========================================
-const listClients = async (req, res) => {
+// Listar Clientes (Com filtros simples)
+const getClients = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { type, search } = req.query;
+        const { status } = req.query;
 
-        let sql = `SELECT * FROM clients WHERE tenant_id = $1`;
+        let sql = `
+            SELECT id, name, email, phone, document, city, status, source, created_at 
+            FROM clients 
+            WHERE tenant_id = $1
+        `;
         const params = [tenantId];
-        let paramIndex = 2;
 
-        if (type && type !== 'all') {
-            sql += ` AND (type = $${paramIndex} OR type = 'both')`;
-            params.push(type);
-            paramIndex++;
-        }
-
-        if (search) {
-            sql += ` AND (name ILIKE $${paramIndex} OR email ILIKE $${paramIndex} OR document ILIKE $${paramIndex})`;
-            params.push(`%${search}%`);
-            paramIndex++;
+        if (status) {
+            sql += ` AND status = $2`;
+            params.push(status);
         }
 
         sql += ` ORDER BY name ASC`;
 
         const result = await query(sql, params);
         return res.json(result.rows);
-
     } catch (error) {
-        console.error('Erro ao listar clientes:', error);
-        return res.status(500).json({ message: 'Erro ao buscar clientes.' });
+        console.error(error);
+        return res.status(500).json({ message: 'Erro ao listar clientes.' });
     }
 };
 
-// ==========================================
-// 2. CRIAR CLIENTE
-// ==========================================
+// Obter Detalhes Completos do Cliente (CRM View)
+const getClientDetails = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const clientId = req.params.id;
+
+        // 1. Dados Cadastrais
+        const clientSql = `SELECT * FROM clients WHERE id = $1 AND tenant_id = $2`;
+        const clientRes = await query(clientSql, [clientId, tenantId]);
+        
+        if (clientRes.rows.length === 0) {
+            return res.status(404).json({ message: 'Cliente não encontrado.' });
+        }
+
+        // 2. Resumo Financeiro (Total Gasto, Total em Aberto)
+        const financeSql = `
+            SELECT 
+                COALESCE(SUM(CASE WHEN type = 'income' AND status = 'completed' THEN amount ELSE 0 END), 0) as total_spent,
+                COALESCE(SUM(CASE WHEN type = 'income' AND status = 'pending' THEN amount ELSE 0 END), 0) as total_debt
+            FROM transactions 
+            WHERE client_id = $1 AND tenant_id = $2
+        `;
+        const financeRes = await query(financeSql, [clientId, tenantId]);
+
+        // 3. Últimas Interações (Timeline)
+        const historySql = `
+            SELECT i.*, u.name as user_name 
+            FROM client_interactions i
+            LEFT JOIN users u ON i.user_id = u.id
+            WHERE i.client_id = $1 ORDER BY i.date DESC LIMIT 20
+        `;
+        const historyRes = await query(historySql, [clientId]);
+
+        // 4. Últimas OS
+        const osSql = `SELECT id, equipment, status, created_at FROM service_orders WHERE client_id = $1 ORDER BY created_at DESC LIMIT 5`;
+        const osRes = await query(osSql, [clientId]);
+
+        return res.json({
+            client: clientRes.rows[0],
+            financial: financeRes.rows[0],
+            history: historyRes.rows,
+            last_os: osRes.rows
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Erro ao carregar detalhes.' });
+    }
+};
+
+// Criar Cliente
 const createClient = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { name, email, phone, document, address, type } = req.body;
+        const { name, email, phone, document, address, city, state, zip_code, status, source, notes } = req.body;
 
-        if (!name) {
-            return res.status(400).json({ message: 'Nome é obrigatório.' });
-        }
+        if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
 
-        const result = await query(
-            `INSERT INTO clients 
-            (tenant_id, name, email, phone, document, address, type) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7) 
-            RETURNING *`,
-            [tenantId, name, email, phone, document, address, type || 'client']
-        );
+        const sql = `
+            INSERT INTO clients (tenant_id, name, email, phone, document, address, city, state, zip_code, status, source, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING *
+        `;
+        const result = await query(sql, [
+            tenantId, name, email, phone, document, 
+            address, city, state, zip_code, 
+            status || 'lead', source || 'other', notes
+        ]);
 
         return res.status(201).json(result.rows[0]);
-
     } catch (error) {
-        console.error('Erro ao criar cliente:', error);
-        return res.status(500).json({ message: 'Erro ao cadastrar cliente.' });
+        console.error(error);
+        return res.status(500).json({ message: 'Erro ao criar cliente.' });
     }
 };
 
-// ==========================================
-// 3. ATUALIZAR CLIENTE
-// ==========================================
+// Atualizar Cliente
 const updateClient = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { id } = req.params;
-        const { name, email, phone, document, address, type } = req.body;
+        const clientId = req.params.id;
+        const { name, email, phone, document, address, city, state, zip_code, status, source, notes } = req.body;
 
-        const result = await query(
-            `UPDATE clients 
-             SET name = $1, email = $2, phone = $3, document = $4, address = $5, type = $6 
-             WHERE id = $7 AND tenant_id = $8 
-             RETURNING *`,
-            [name, email, phone, document, address, type, id, tenantId]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'Cliente não encontrado.' });
-        }
+        const sql = `
+            UPDATE clients 
+            SET name=$1, email=$2, phone=$3, document=$4, address=$5, city=$6, state=$7, zip_code=$8, status=$9, source=$10, notes=$11
+            WHERE id=$12 AND tenant_id=$13
+            RETURNING *
+        `;
+        const result = await query(sql, [
+            name, email, phone, document, address, city, state, zip_code, status, source, notes,
+            clientId, tenantId
+        ]);
 
         return res.json(result.rows[0]);
-
     } catch (error) {
-        console.error('Erro ao atualizar cliente:', error);
-        return res.status(500).json({ message: 'Erro ao atualizar dados.' });
+        return res.status(500).json({ message: 'Erro ao atualizar.' });
     }
 };
 
-// ==========================================
-// 4. DELETAR CLIENTE
-// ==========================================
+// Deletar Cliente
 const deleteClient = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { id } = req.params;
-
-        // Verifica se tem OS vinculada (Opcional, mas recomendado futuramente)
-        // const checkOS = await query('SELECT id FROM service_orders WHERE client_id = $1', [id]);
-        // if (checkOS.rows.length > 0) return res.status(400).json({message: 'Cliente possui OS vinculadas.'});
-
-        const result = await query(
-            'DELETE FROM clients WHERE id = $1 AND tenant_id = $2 RETURNING id',
-            [id, tenantId]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: 'Cliente não encontrado.' });
-        }
-
+        const clientId = req.params.id;
+        await query('DELETE FROM clients WHERE id = $1 AND tenant_id = $2', [clientId, tenantId]);
         return res.json({ message: 'Cliente removido.' });
-
     } catch (error) {
-        console.error('Erro ao deletar cliente:', error);
-        return res.status(500).json({ message: 'Erro ao remover cliente.' });
+        return res.status(500).json({ message: 'Erro ao deletar.' });
     }
 };
 
-module.exports = {
-    listClients,
-    createClient,
-    updateClient,
-    deleteClient
+// Adicionar Interação (Timeline)
+const addInteraction = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const clientId = req.params.id;
+        const userId = req.user.id;
+        const { type, description } = req.body;
+
+        const sql = `
+            INSERT INTO client_interactions (tenant_id, client_id, user_id, type, description)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+        `;
+        await query(sql, [tenantId, clientId, userId, type, description]);
+        return res.status(201).json({ message: 'Interação registrada.' });
+    } catch (error) {
+        return res.status(500).json({ message: 'Erro ao salvar interação.' });
+    }
 };
+
+module.exports = { getClients, getClientDetails, createClient, updateClient, deleteClient, addInteraction };

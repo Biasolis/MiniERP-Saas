@@ -1,200 +1,170 @@
 import { useEffect, useState, useContext } from 'react';
+import { useNavigate } from 'react-router-dom'; // Importante para navegação
 import api from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
-import styles from './Clients.module.css';
-import { Plus, Search, User, Phone, Mail, Trash2, Edit } from 'lucide-react';
+import { Plus, Search, User, Phone, MapPin, Briefcase } from 'lucide-react';
+import styles from './Clients.module.css'; // Vamos atualizar o CSS abaixo
 
 export default function Clients() {
   const { addToast } = useContext(ToastContext);
-  
+  const navigate = useNavigate();
+
   const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [formData, setFormData] = useState({
-    name: '', email: '', phone: '', document: '', address: '', type: 'client'
+  
+  const [newClient, setNewClient] = useState({
+    name: '', email: '', phone: '', document: '', 
+    city: '', status: 'lead', source: 'indication'
   });
 
-  useEffect(() => {
-    loadClients();
-  }, []);
+  useEffect(() => { loadClients(); }, []);
 
   async function loadClients() {
+    setLoading(true);
     try {
-      const response = await api.get('/clients');
-      setClients(response.data);
+        const res = await api.get('/clients');
+        setClients(res.data);
     } catch (error) {
-      console.error(error);
-      addToast({ type: 'error', title: 'Erro ao carregar clientes' });
+        addToast({ type: 'error', title: 'Erro ao carregar clientes' });
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   }
 
-  function openModal(client = null) {
-    if (client) {
-        setEditingId(client.id);
-        setFormData({ ...client });
-    } else {
-        setEditingId(null);
-        setFormData({ name: '', email: '', phone: '', document: '', address: '', type: 'client' });
-    }
-    setIsModalOpen(true);
-  }
-
-  async function handleSave(e) {
+  async function handleCreate(e) {
     e.preventDefault();
     try {
-      if (editingId) {
-          await api.put(`/clients/${editingId}`, formData);
-          addToast({ type: 'success', title: 'Cliente atualizado!' });
-      } else {
-          await api.post('/clients', formData);
-          addToast({ type: 'success', title: 'Cliente cadastrado!' });
-      }
-      setIsModalOpen(false);
-      loadClients();
+        await api.post('/clients', newClient);
+        addToast({ type: 'success', title: 'Cliente cadastrado!' });
+        setIsModalOpen(false);
+        setNewClient({ name: '', email: '', phone: '', document: '', city: '', status: 'lead', source: 'indication' });
+        loadClients();
     } catch (error) {
-      addToast({ type: 'error', title: 'Erro ao salvar.' });
+        addToast({ type: 'error', title: 'Erro ao cadastrar' });
     }
   }
 
-  async function handleDelete(id) {
-    if (!window.confirm("Deseja remover este cadastro?")) return;
-    try {
-        await api.delete(`/clients/${id}`);
-        setClients(clients.filter(c => c.id !== id));
-        addToast({ type: 'success', title: 'Removido com sucesso.' });
-    } catch (error) {
-        addToast({ type: 'error', title: 'Erro ao remover.' });
-    }
-  }
-
-  const filtered = clients.filter(c => 
+  // Filtro local
+  const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  const getStatusBadge = (status) => {
+      switch(status) {
+          case 'lead': return <span style={{background:'#fef3c7', color:'#d97706', padding:'2px 8px', borderRadius:'10px', fontSize:'0.75rem', fontWeight:'600'}}>Lead</span>;
+          case 'active': return <span style={{background:'#d1fae5', color:'#059669', padding:'2px 8px', borderRadius:'10px', fontSize:'0.75rem', fontWeight:'600'}}>Cliente</span>;
+          case 'inactive': return <span style={{background:'#f3f4f6', color:'#6b7280', padding:'2px 8px', borderRadius:'10px', fontSize:'0.75rem', fontWeight:'600'}}>Inativo</span>;
+          default: return null;
+      }
+  };
+
   return (
     <DashboardLayout>
-      <div className={styles.container}>
-        <div className={styles.header}>
-            <div className={styles.title}>
-                <h2>Clientes e Fornecedores</h2>
-                <p>Gerencie sua base de contatos</p>
-            </div>
-            <div className={styles.actions}>
-                <div style={{position:'relative'}}>
-                    <Search size={18} style={{position:'absolute', left:'10px', top:'10px', color:'#9ca3af'}}/>
-                    <input 
-                        className={styles.searchInput} 
-                        placeholder="Buscar por nome ou email..."
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                        style={{paddingLeft: '2.2rem'}}
-                    />
-                </div>
-                <button className={styles.btnNew} onClick={() => openModal()}>
-                    <Plus size={18} /> Novo Contato
-                </button>
-            </div>
-        </div>
+      <div className={styles.header}>
+        <h2>Gestão de Clientes & Leads</h2>
+        <button className={styles.btnPrimary} onClick={() => setIsModalOpen(true)}>
+            <Plus size={18} /> Novo Cadastro
+        </button>
+      </div>
 
-        {loading ? <p>Carregando...</p> : (
+      <div className={styles.filterBar}>
+        <div className={styles.searchBox}>
+            <Search size={18} color="#9ca3af" />
+            <input 
+                placeholder="Buscar por nome ou email..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+            />
+        </div>
+      </div>
+
+      {loading ? <p>Carregando...</p> : (
+        <div className={styles.tableContainer}>
             <table className={styles.table}>
                 <thead>
                     <tr>
-                        <th style={{width:'50px'}}></th>
-                        <th>Nome / Documento</th>
+                        <th>Nome / Empresa</th>
                         <th>Contato</th>
-                        <th>Tipo</th>
-                        <th style={{textAlign:'right'}}>Ações</th>
+                        <th>Cidade</th>
+                        <th>Status</th>
+                        <th>Origem</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {filtered.map(c => (
-                        <tr key={c.id}>
+                    {filteredClients.map(client => (
+                        <tr key={client.id} onClick={() => navigate(`/dashboard/clients/${client.id}`)} style={{cursor:'pointer'}}>
                             <td>
-                                <div className={styles.avatar}>
-                                    {c.name.charAt(0).toUpperCase()}
-                                </div>
-                            </td>
-                            <td>
-                                <div style={{fontWeight:600}}>{c.name}</div>
-                                <div style={{fontSize:'0.8rem', color:'#9ca3af'}}>{c.document || 'Sem documento'}</div>
+                                <div style={{fontWeight:600, color:'#374151'}}>{client.name}</div>
+                                <div style={{fontSize:'0.8rem', color:'#9ca3af'}}>{client.document}</div>
                             </td>
                             <td>
-                                {c.email && <div style={{display:'flex', gap:'5px', fontSize:'0.85rem', marginBottom:'2px'}}><Mail size={14}/> {c.email}</div>}
-                                {c.phone && <div style={{display:'flex', gap:'5px', fontSize:'0.85rem'}}><Phone size={14}/> {c.phone}</div>}
+                                <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'0.9rem'}}><Phone size={12}/> {client.phone}</div>
+                                <div style={{fontSize:'0.8rem', color:'#6b7280'}}>{client.email}</div>
                             </td>
-                            <td>
-                                <span className={`${styles.badge} ${c.type === 'client' ? styles.badgeClient : styles.badgeSupplier}`}>
-                                    {c.type === 'client' ? 'Cliente' : c.type === 'supplier' ? 'Fornecedor' : 'Ambos'}
-                                </span>
-                            </td>
-                            <td style={{textAlign:'right'}}>
-                                <button className={styles.btnAction} onClick={() => openModal(c)} title="Editar">
-                                    <Edit size={18} />
-                                </button>
-                                <button className={`${styles.btnAction} ${styles.btnDelete}`} onClick={() => handleDelete(c.id)} title="Excluir">
-                                    <Trash2 size={18} />
-                                </button>
-                            </td>
+                            <td>{client.city || '-'}</td>
+                            <td>{getStatusBadge(client.status)}</td>
+                            <td style={{fontSize:'0.85rem', color:'#6b7280', textTransform:'capitalize'}}>{client.source}</td>
                         </tr>
                     ))}
-                    {filtered.length === 0 && <tr><td colSpan="5" style={{textAlign:'center', color:'#9ca3af'}}>Nenhum contato encontrado.</td></tr>}
                 </tbody>
             </table>
-        )}
+        </div>
+      )}
 
-        {/* MODAL */}
-        <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Editar Contato" : "Novo Contato"}>
-            <form onSubmit={handleSave}>
-                <div className={styles.formGroup}>
-                    <label className={styles.label}>Nome Completo / Razão Social</label>
-                    <input className={styles.input} required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+      {/* MODAL NOVO CLIENTE */}
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Novo Cliente/Lead">
+        <form onSubmit={handleCreate} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+            <div>
+                <label className={styles.label}>Nome Completo / Razão Social</label>
+                <input required className={styles.input} value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} />
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+                <div>
+                    <label className={styles.label}>Telefone / WhatsApp</label>
+                    <input className={styles.input} value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
                 </div>
-                
-                <div className={styles.formGrid}>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>Email</label>
-                        <input className={styles.input} type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-                    </div>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>Telefone / WhatsApp</label>
-                        <input className={styles.input} value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-                    </div>
+                <div>
+                    <label className={styles.label}>Email</label>
+                    <input type="email" className={styles.input} value={newClient.email} onChange={e => setNewClient({...newClient, email: e.target.value})} />
                 </div>
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+                <div>
+                    <label className={styles.label}>CPF / CNPJ</label>
+                    <input className={styles.input} value={newClient.document} onChange={e => setNewClient({...newClient, document: e.target.value})} />
+                </div>
+                <div>
+                    <label className={styles.label}>Cidade</label>
+                    <input className={styles.input} value={newClient.city} onChange={e => setNewClient({...newClient, city: e.target.value})} />
+                </div>
+            </div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
+                <div>
+                    <label className={styles.label}>Status Inicial</label>
+                    <select className={styles.input} value={newClient.status} onChange={e => setNewClient({...newClient, status: e.target.value})}>
+                        <option value="lead">Lead (Prospecção)</option>
+                        <option value="active">Cliente Ativo</option>
+                    </select>
+                </div>
+                <div>
+                    <label className={styles.label}>Origem (Marketing)</label>
+                    <select className={styles.input} value={newClient.source} onChange={e => setNewClient({...newClient, source: e.target.value})}>
+                        <option value="indication">Indicação</option>
+                        <option value="google">Google</option>
+                        <option value="instagram">Instagram</option>
+                        <option value="other">Outros</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" className={styles.btnPrimary} style={{marginTop:'10px', width:'100%', justifyContent:'center'}}>Salvar</button>
+        </form>
+      </Modal>
 
-                <div className={styles.formGrid}>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>CPF / CNPJ</label>
-                        <input className={styles.input} value={formData.document} onChange={e => setFormData({...formData, document: e.target.value})} />
-                    </div>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>Tipo de Cadastro</label>
-                        <select className={styles.select} value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
-                            <option value="client">Cliente</option>
-                            <option value="supplier">Fornecedor</option>
-                            <option value="both">Ambos</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div className={styles.formGroup}>
-                    <label className={styles.label}>Endereço Completo</label>
-                    <input className={styles.input} value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
-                </div>
-
-                <button type="submit" className={styles.btnSave}>Salvar Contato</button>
-            </form>
-        </Modal>
-      </div>
     </DashboardLayout>
   );
 }
