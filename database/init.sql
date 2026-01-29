@@ -327,3 +327,128 @@ ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS identifier VARCHAR(50);
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS mileage VARCHAR(50);
 -- brand = Marca/Modelo
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS brand VARCHAR(100);
+
+-- 1. Tabela de Definição dos Campos (O que a empresa quer cobrar)
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    module VARCHAR(50) NOT NULL, -- 'service_order', 'sale', 'client'
+    label VARCHAR(100) NOT NULL, -- Ex: 'Placa', 'IMEI', 'Modelo'
+    type VARCHAR(20) DEFAULT 'text', -- 'text', 'number', 'date'
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Tabela de Valores (O dado preenchido na OS)
+CREATE TABLE IF NOT EXISTS custom_field_values (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    field_definition_id UUID REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+    entity_id INTEGER NOT NULL, -- ID da OS ou Venda
+    entity_type VARCHAR(50) NOT NULL, -- 'service_order'
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_custom_def_tenant ON custom_field_definitions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_custom_val_entity ON custom_field_values(entity_id, entity_type);
+
+-- Opcional: Se quiser limpar os campos fixos criados anteriormente
+ALTER TABLE service_orders DROP COLUMN identifier;
+ALTER TABLE service_orders DROP COLUMN mileage;
+ALTER TABLE service_orders DROP COLUMN brand;
+
+-- TABELA DE DEFINIÇÃO DE CAMPOS (Configuração da Empresa)
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    module VARCHAR(50) NOT NULL, -- 'service_order'
+    label VARCHAR(100) NOT NULL, -- 'Placa', 'KM', 'Modelo'
+    type VARCHAR(20) DEFAULT 'text',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TABELA DE VALORES (Dados salvos na OS)
+CREATE TABLE IF NOT EXISTS custom_field_values (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    field_definition_id UUID REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+    entity_id INTEGER NOT NULL, -- ID da OS
+    entity_type VARCHAR(50) NOT NULL, -- 'service_order'
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 1. Tabela de Definição dos Campos (Ex: Placa, KM, Marca)
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    module VARCHAR(50) NOT NULL, -- 'service_order'
+    label VARCHAR(100) NOT NULL, 
+    type VARCHAR(20) DEFAULT 'text',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Tabela de Valores (O dado preenchido na OS: 'ABC-1234')
+CREATE TABLE IF NOT EXISTS custom_field_values (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    field_definition_id UUID REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+    entity_id INTEGER NOT NULL, -- ID da OS
+    entity_type VARCHAR(50) NOT NULL, -- 'service_order'
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_custom_def_tenant ON custom_field_definitions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_custom_val_entity ON custom_field_values(entity_id, entity_type);
+
+-- 1. Melhorar Tabela de Tenants (Dados da Empresa para Impressão)
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address VARCHAR(255);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS document VARCHAR(50); -- CNPJ
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_contact VARCHAR(100);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(100);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS footer_message TEXT DEFAULT 'Obrigado pela preferência!';
+
+-- 2. Tabela de Definição dos Campos Personalizados (Ex: Placa, KM)
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    module VARCHAR(50) NOT NULL, -- 'service_order'
+    label VARCHAR(100) NOT NULL, 
+    type VARCHAR(20) DEFAULT 'text',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Tabela de Valores (O dado preenchido na OS)
+CREATE TABLE IF NOT EXISTS custom_field_values (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    field_definition_id UUID REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+    entity_id INTEGER NOT NULL, -- ID da OS
+    entity_type VARCHAR(50) NOT NULL, -- 'service_order'
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_custom_def_tenant ON custom_field_definitions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_custom_val_entity ON custom_field_values(entity_id, entity_type);
+
+-- Índices para acelerar o Dashboard
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+CREATE INDEX IF NOT EXISTS idx_service_orders_created_at ON service_orders(created_at);
+CREATE INDEX IF NOT EXISTS idx_service_orders_status ON service_orders(status);
+
+-- Adiciona a coluna de tipo (padrão 'product' para os já existentes)
+ALTER TABLE products ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'product';
+
+-- Garante que serviços não tenham estoque negativo ou estranho (opcional, apenas limpeza)
+UPDATE products SET stock = 0 WHERE type = 'service';
+
+-- Garante que a coluna type existe
+ALTER TABLE products ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'product';

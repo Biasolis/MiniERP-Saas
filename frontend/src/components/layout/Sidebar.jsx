@@ -75,7 +75,7 @@ export default function Sidebar() {
         </Link>
 
         <Link to="/dashboard/products" className={`${styles.link} ${isActive('/dashboard/products') ? styles.active : ''}`}>
-          <Package size={20} /> Estoque
+          <Package size={20} /> Produtos e Serviços
         </Link>
 
         <Link to="/dashboard/clients" className={`${styles.link} ${isActive('/dashboard/clients') ? styles.active : ''}`}>

@@ -1,178 +1,221 @@
-import { useEffect, useState, useContext } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
-import { AuthContext } from '../../context/AuthContext';
 import styles from './DashboardHome.module.css';
-import { Wallet, TrendingUp, TrendingDown, ClipboardList, AlertTriangle, Users, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { 
+    TrendingUp, TrendingDown, DollarSign, Wallet,
+    PlusCircle, Wrench, Users, Package, FileText,
+    ArrowRight, AlertTriangle, ArrowUpRight, ArrowDownRight
+} from 'lucide-react';
+
+// Recharts (Gráficos)
+import { 
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
+    BarChart, Bar, PieChart, Pie, Cell, Legend
+} from 'recharts';
 
 export default function DashboardHome() {
-  const { user } = useContext(AuthContext);
-  
-  // Estado Unificado
-  const [stats, setStats] = useState(null);
-  const [chartData, setChartData] = useState([]);
-  const [recentTransactions, setRecentTransactions] = useState([]);
-  const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // Busca paralela para performance
-        const [statsRes, chartRes, recentRes] = await Promise.all([
-          api.get('/dashboard/stats'),        // Nova Rota Agregada
-          api.get('/transactions/chart-data'),
-          api.get('/transactions/recent')
-        ]);
+    useEffect(() => {
+        api.get('/dashboard/stats')
+           .then(res => setData(res.data))
+           .catch(err => console.error(err))
+           .finally(() => setLoading(false));
+    }, []);
 
-        setStats(statsRes.data);
-        setChartData(chartRes.data);
-        setRecentTransactions(recentRes.data);
+    if (loading) return <DashboardLayout><div className={styles.loading}>Carregando central...</div></DashboardLayout>;
+    if (!data) return null;
 
-      } catch (error) {
-        console.error("Erro ao carregar dashboard:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
+    // Formatadores
+    const formatBRL = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+    
+    // Cores OS
+    const COLORS_OS = { 'open': '#3b82f6', 'in_progress': '#f59e0b', 'completed': '#10b981', 'waiting': '#9ca3af' };
+    const pieData = data.os.statusData.map(d => ({ ...d, color: COLORS_OS[d.statusKey] || '#888' }));
 
-    fetchData();
-  }, []);
-
-  const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
-
-  if (loading) {
-      return (
-          <DashboardLayout>
-              <div style={{display:'flex', justifyContent:'center', marginTop:'3rem'}}>Carregando Visão Geral...</div>
-          </DashboardLayout>
-      );
-  }
-
-  return (
-    <DashboardLayout>
-      <div className={styles.container}>
-        
-        <div>
-           <h1 style={{fontSize:'1.5rem', fontWeight:'bold', color:'#1f2937'}}>Painel de Controle</h1>
-           <p style={{color:'#6b7280'}}>Visão 360º de <strong>{user?.companyName}</strong>.</p>
-        </div>
-
-        {/* 1. CARDS DE KPI UNIFICADOS */}
-        <div className={styles.kpiGrid}>
-            {/* Financeiro - Saldo */}
-            <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                    <span>Saldo Mensal</span>
-                    <Wallet size={20} color="#2563eb" />
+    return (
+        <DashboardLayout>
+            <div className={styles.container}>
+                
+                {/* CABEÇALHO E ATALHOS */}
+                <div className={styles.topSection}>
+                    <div>
+                        <h2 className={styles.title}>Visão Geral</h2>
+                        <p className={styles.subtitle}>Resumo das atividades da sua empresa.</p>
+                    </div>
+                    <div className={styles.shortcuts}>
+                        <button onClick={() => navigate('/dashboard/transactions')} className={styles.shortcutBtn} title="Novo Lançamento">
+                            <PlusCircle size={18} /> <span className={styles.btnLabel}>Lançamento</span>
+                        </button>
+                        <button onClick={() => navigate('/dashboard/service-orders')} className={styles.shortcutBtn} title="Nova OS">
+                            <Wrench size={18} /> <span className={styles.btnLabel}>Nova OS</span>
+                        </button>
+                        <button onClick={() => navigate('/dashboard/clients')} className={styles.shortcutBtn} title="Novo Cliente">
+                            <Users size={18} /> <span className={styles.btnLabel}>Cliente</span>
+                        </button>
+                        <button onClick={() => navigate('/dashboard/products')} className={styles.shortcutBtn} title="Novo Produto">
+                            <Package size={18} /> <span className={styles.btnLabel}>Produto</span>
+                        </button>
+                    </div>
                 </div>
-                <div className={styles.cardValue} style={{color: stats?.finance.balance >= 0 ? '#2563eb' : '#dc2626'}}>
-                    {formatCurrency(stats?.finance.balance)}
-                </div>
-                <div className={styles.cardSubtext}>
-                   Entradas: {formatCurrency(stats?.finance.income)}
-                </div>
-            </div>
 
-            {/* Operacional - OS Abertas */}
-            <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                    <span>Ordens de Serviço</span>
-                    <ClipboardList size={20} color="#d97706" />
+                {/* KPI CARDS (FINANCEIRO) */}
+                <div className={styles.kpiGrid}>
+                    <div className={styles.kpiCard}>
+                        <div className={styles.kpiHeader}>
+                            <span className={styles.kpiTitle}>Receitas (Mês)</span>
+                            <div className={styles.iconBox} style={{bg:'#ecfdf5', color:'#10b981'}}><ArrowUpRight size={20}/></div>
+                        </div>
+                        <h3 className={styles.kpiValue} style={{color:'#10b981'}}>{formatBRL(data.financial.income)}</h3>
+                    </div>
+                    <div className={styles.kpiCard}>
+                        <div className={styles.kpiHeader}>
+                            <span className={styles.kpiTitle}>Despesas (Mês)</span>
+                            <div className={styles.iconBox} style={{bg:'#fef2f2', color:'#ef4444'}}><ArrowDownRight size={20}/></div>
+                        </div>
+                        <h3 className={styles.kpiValue} style={{color:'#ef4444'}}>{formatBRL(data.financial.expense)}</h3>
+                    </div>
+                    <div className={styles.kpiCard}>
+                        <div className={styles.kpiHeader}>
+                            <span className={styles.kpiTitle}>Saldo Atual</span>
+                            <div className={styles.iconBox} style={{bg:'#eff6ff', color:'#3b82f6'}}><Wallet size={20}/></div>
+                        </div>
+                        <h3 className={styles.kpiValue} style={{color: data.financial.balance >= 0 ? '#3b82f6' : '#ef4444'}}>
+                            {formatBRL(data.financial.balance)}
+                        </h3>
+                    </div>
+                    <div className={styles.kpiCard}>
+                        <div className={styles.kpiHeader}>
+                            <span className={styles.kpiTitle}>Total OS</span>
+                            <div className={styles.iconBox} style={{bg:'#f5f3ff', color:'#8b5cf6'}}><FileText size={20}/></div>
+                        </div>
+                        <h3 className={styles.kpiValue}>{data.os.total}</h3>
+                    </div>
                 </div>
-                <div className={styles.cardValue} style={{color: '#d97706'}}>
-                    {stats?.os.open} Abertas
-                </div>
-                <div className={styles.cardSubtext}>
-                   {stats?.os.critical > 0 ? `${stats.os.critical} com Prioridade Alta!` : 'Operação Normal'}
-                </div>
-            </div>
 
-            {/* Estoque - Alertas */}
-            <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                    <span>Alerta de Estoque</span>
-                    <AlertTriangle size={20} color="#dc2626" />
-                </div>
-                <div className={styles.cardValue} style={{color: stats?.stock.low > 0 ? '#dc2626' : '#16a34a'}}>
-                    {stats?.stock.low} Itens
-                </div>
-                <div className={styles.cardSubtext}>
-                   {stats?.stock.low > 0 ? 'Necessitam Reposição' : 'Estoque Saudável'}
-                </div>
-            </div>
+                {/* GRÁFICOS PRINCIPAIS */}
+                <div className={styles.chartsRow}>
+                    
+                    {/* Gráfico Financeiro (Área) */}
+                    <div className={`${styles.chartCard} ${styles.col2}`}>
+                        <div className={styles.cardHeader}>
+                            <h3>Evolução Financeira (6 Meses)</h3>
+                        </div>
+                        <div style={{height: 300, width: '100%'}}>
+                            <ResponsiveContainer>
+                                <AreaChart data={data.financial.history}>
+                                    <defs>
+                                        <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                        </linearGradient>
+                                        <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.2}/>
+                                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0"/>
+                                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize:12, fill:'#999'}} dy={10} />
+                                    <YAxis hide/>
+                                    <RechartsTooltip formatter={(val) => formatBRL(val)} contentStyle={{borderRadius:8, border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}/>
+                                    <Area type="monotone" dataKey="Receitas" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" />
+                                    <Area type="monotone" dataKey="Despesas" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorExpense)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
 
-            {/* Clientes */}
-            <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                    <span>Base de Clientes</span>
-                    <Users size={20} color="#059669" />
-                </div>
-                <div className={styles.cardValue} style={{color: '#1f2937'}}>
-                    {stats?.clients.total}
-                </div>
-                <div className={styles.cardSubtext}>
-                   Contatos Cadastrados
-                </div>
-            </div>
-        </div>
-
-        {/* 2. ÁREA DE GRÁFICOS E RECENTES */}
-        <div className={styles.chartsGrid}>
-            {/* Gráfico Principal */}
-            <div className={styles.chartContainer}>
-                <h3 className={styles.chartTitle}>Fluxo Financeiro (30 dias)</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <defs>
-                            <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                            </linearGradient>
-                            <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8}/>
-                                <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                            </linearGradient>
-                        </defs>
-                        <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
-                        <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `R$${val/1000}k`} />
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                        <Tooltip 
-                            formatter={(value) => formatCurrency(value)}
-                            contentStyle={{backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #f3f4f6'}}
-                        />
-                        <Area type="monotone" dataKey="income" name="Entradas" stroke="#10b981" fillOpacity={1} fill="url(#colorIncome)" />
-                        <Area type="monotone" dataKey="expense" name="Saídas" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" />
-                    </AreaChart>
-                </ResponsiveContainer>
-            </div>
-
-            {/* Lista de Recentes */}
-            <div className={styles.recentSection}>
-                <h3 className={styles.chartTitle}>Últimas Movimentações</h3>
-                <ul className={styles.recentList}>
-                    {recentTransactions.map(t => (
-                        <li key={t.id} className={styles.recentItem}>
-                            <div className={styles.itemInfo}>
-                                <div className={`${styles.iconWrapper} ${t.type === 'income' ? styles.incomeIcon : styles.expenseIcon}`}>
-                                    {t.type === 'income' ? <ArrowDownRight size={20} /> : <ArrowUpRight size={20} />}
-                                </div>
-                                <div className={styles.itemText}>
-                                    <h4>{t.description}</h4>
-                                    <span>{new Date(t.date).toLocaleDateString('pt-BR')}</span>
-                                </div>
+                    {/* Gráfico Status OS (Pie) */}
+                    <div className={styles.chartCard}>
+                        <div className={styles.cardHeader}>
+                            <h3>Status das OS</h3>
+                        </div>
+                        {pieData.length > 0 ? (
+                            <div style={{height: 300, width: '100%'}}>
+                                <ResponsiveContainer>
+                                    <PieChart>
+                                        <Pie data={pieData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                                            {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                        </Pie>
+                                        <RechartsTooltip />
+                                        <Legend verticalAlign="bottom" height={36}/>
+                                    </PieChart>
+                                </ResponsiveContainer>
                             </div>
-                            <div className={`${styles.itemAmount} ${t.type === 'income' ? styles.amountIncome : styles.amountExpense}`}>
-                                {t.type === 'income' ? '+' : '-'} {formatCurrency(t.amount)}
-                            </div>
-                        </li>
-                    ))}
-                    {recentTransactions.length === 0 && <p style={{color:'#9ca3af', textAlign:'center'}}>Nenhuma atividade recente.</p>}
-                </ul>
-            </div>
-        </div>
+                        ) : (
+                            <div className={styles.emptyState}>Sem dados de OS</div>
+                        )}
+                    </div>
+                </div>
 
-      </div>
-    </DashboardLayout>
-  );
+                <div className={styles.chartsRow}>
+                    
+                    {/* Gráfico OS Diária (Barra) */}
+                    <div className={styles.chartCard}>
+                        <div className={styles.cardHeader}>
+                            <h3>Volume de OS (7 Dias)</h3>
+                        </div>
+                        <div style={{height: 250, width: '100%'}}>
+                            <ResponsiveContainer>
+                                <BarChart data={data.os.dailyData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0"/>
+                                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize:12}} />
+                                    <RechartsTooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius:8}}/>
+                                    <Bar dataKey="Qtd" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={30} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Alertas de Estoque */}
+                    <div className={styles.chartCard}>
+                        <div className={styles.cardHeader}>
+                            <h3 style={{color:'#f59e0b', display:'flex', alignItems:'center', gap:8}}><AlertTriangle size={18}/> Estoque Crítico</h3>
+                            <button onClick={()=>navigate('/dashboard/products')} className={styles.linkBtn}>Ver</button>
+                        </div>
+                        <ul className={styles.list}>
+                            {data.stock.low.map(p => (
+                                <li key={p.id} className={styles.listItem}>
+                                    <div style={{display:'flex', alignItems:'center', gap:10}}>
+                                        <Package size={16} color="#666"/>
+                                        <span style={{fontWeight:500}}>{p.name}</span>
+                                    </div>
+                                    <span className={styles.badgeWarn}>{p.stock} un</span>
+                                </li>
+                            ))}
+                            {data.stock.low.length === 0 && <li className={styles.emptyState}>Estoque ok!</li>}
+                        </ul>
+                    </div>
+
+                    {/* Últimas Transações */}
+                    <div className={styles.chartCard}>
+                        <div className={styles.cardHeader}>
+                            <h3>Últimas Transações</h3>
+                            <button onClick={()=>navigate('/dashboard/transactions')} className={styles.linkBtn}>Ver</button>
+                        </div>
+                        <ul className={styles.list}>
+                            {data.recentTransactions.map(t => (
+                                <li key={t.id} className={styles.listItem}>
+                                    <div style={{display:'flex', flexDirection:'column'}}>
+                                        <span style={{fontWeight:500}}>{t.description}</span>
+                                        <span style={{fontSize:11, color:'#999'}}>{new Date(t.date).toLocaleDateString('pt-BR')}</span>
+                                    </div>
+                                    <span style={{fontWeight:600, color: t.type === 'income' ? '#10b981' : '#ef4444'}}>
+                                        {t.type === 'income' ? '+' : '-'} {formatBRL(t.amount)}
+                                    </span>
+                                </li>
+                            ))}
+                            {data.recentTransactions.length === 0 && <li className={styles.emptyState}>Nenhuma transação.</li>}
+                        </ul>
+                    </div>
+
+                </div>
+
+            </div>
+        </DashboardLayout>
+    );
 }

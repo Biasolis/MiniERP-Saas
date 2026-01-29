@@ -8,6 +8,10 @@ router.use(authMiddleware);
 router.get('/', serviceOrderController.getServiceOrders);
 router.get('/:id', serviceOrderController.getServiceOrderDetails);
 router.post('/', serviceOrderController.createServiceOrder);
+
+// ROTA DE EDIÇÃO (NOVA)
+router.put('/:id', serviceOrderController.updateServiceOrder);
+
 router.patch('/:id/status', serviceOrderController.updateStatus);
 
 // Rotas de Itens

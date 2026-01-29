@@ -4,8 +4,8 @@ import api from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
-import { Plus, Search, Wrench, Clock, CheckCircle, AlertCircle } from 'lucide-react';
-import styles from './Clients.module.css'; // Reaproveitando CSS de Clientes por consistência
+import { Plus, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import styles from './ServiceOrders.module.css'; // Agora aponta para o CSS certo
 
 export default function ServiceOrders() {
   const { addToast } = useContext(ToastContext);
@@ -14,72 +14,75 @@ export default function ServiceOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [clients, setClients] = useState([]); // Para o select
+  
+  const [clients, setClients] = useState([]);
+  const [customFields, setCustomFields] = useState([]); // Campos configurados
 
+  // Estado da Nova OS
   const [newOS, setNewOS] = useState({
-      client_id: '', client_name: '', equipment: '', description: '', priority: 'normal'
+      client_id: '', client_name: '', 
+      equipment: '', description: '', priority: 'normal',
+      customValues: {} // Valores dos campos { "uuid": "ABC-123" }
   });
 
   useEffect(() => { 
       loadOrders(); 
       loadClients();
+      loadCustomFields();
   }, []);
 
   async function loadOrders() {
     setLoading(true);
-    try {
-        const res = await api.get('/service-orders');
-        setOrders(res.data);
-    } catch (error) {
+    try { 
+        const res = await api.get('/service-orders'); 
+        setOrders(res.data); 
+    } catch(e){
         addToast({ type: 'error', title: 'Erro ao carregar OS' });
-    } finally {
-        setLoading(false);
+    } finally { 
+        setLoading(false); 
     }
   }
 
-  async function loadClients() {
-      try {
-          const res = await api.get('/clients');
-          setClients(res.data);
-      } catch (error) { console.error('Erro loading clients'); }
-  }
+  async function loadClients() { try { const res = await api.get('/clients'); setClients(res.data); } catch(e){} }
+  async function loadCustomFields() { try { const res = await api.get('/tenant/custom-fields?module=service_order'); setCustomFields(res.data); } catch(e){} }
 
   async function handleCreate(e) {
     e.preventDefault();
     try {
-        // Encontra nome do cliente se selecionado
         let clientName = newOS.client_name;
         if(newOS.client_id) {
             const selected = clients.find(c => c.id === Number(newOS.client_id));
             if(selected) clientName = selected.name;
         }
 
-        const res = await api.post('/service-orders', { ...newOS, client_name: clientName });
+        const payload = { ...newOS, client_name: clientName };
+        const res = await api.post('/service-orders', payload);
+        
         addToast({ type: 'success', title: 'OS Criada!' });
         setIsModalOpen(false);
-        // Redireciona para detalhes para adicionar itens
         navigate(`/dashboard/service-orders/${res.data.id}`);
     } catch (error) {
         addToast({ type: 'error', title: 'Erro ao criar OS' });
     }
   }
 
+  // Handler para inputs dinâmicos
+  const handleCustomChange = (fieldId, value) => {
+      setNewOS(prev => ({
+          ...prev,
+          customValues: { ...prev.customValues, [fieldId]: value }
+      }));
+  };
+
   const getStatusBadge = (status) => {
-      const map = {
-          'open': { label: 'Aberta', color: '#3b82f6', bg: '#dbeafe', icon: <AlertCircle size={14}/> },
-          'in_progress': { label: 'Em Andamento', color: '#d97706', bg: '#fef3c7', icon: <Clock size={14}/> },
-          'completed': { label: 'Finalizada', color: '#059669', bg: '#d1fae5', icon: <CheckCircle size={14}/> },
-          'waiting': { label: 'Aguardando', color: '#6b7280', bg: '#f3f4f6', icon: <Clock size={14}/> }
+      const map = { 
+          'open': { label: 'Aberta', style: styles.open }, 
+          'in_progress': { label: 'Andamento', style: styles.in_progress }, 
+          'completed': { label: 'Finalizada', style: styles.completed }, 
+          'waiting': { label: 'Aguardando', style: styles.waiting } 
       };
       const s = map[status] || map['open'];
-      return (
-          <span style={{
-              background: s.bg, color: s.color, padding:'4px 8px', borderRadius:'12px',
-              fontSize:'0.75rem', fontWeight:'600', display:'flex', alignItems:'center', gap:'4px', width:'fit-content'
-          }}>
-              {s.icon} {s.label}
-          </span>
-      );
+      return <span className={`${styles.badge} ${s.style}`}>{s.label}</span>;
   };
 
   return (
@@ -99,7 +102,6 @@ export default function ServiceOrders() {
                         <th>#ID</th>
                         <th>Cliente</th>
                         <th>Equipamento</th>
-                        <th>Prioridade</th>
                         <th>Total</th>
                         <th>Status</th>
                     </tr>
@@ -110,12 +112,11 @@ export default function ServiceOrders() {
                             <td style={{fontWeight:'bold'}}>#{os.id}</td>
                             <td>{os.client_name}</td>
                             <td>{os.equipment}</td>
-                            <td style={{textTransform:'capitalize'}}>{os.priority === 'high' ? '🔥 Alta' : 'Normal'}</td>
                             <td>R$ {Number(os.total_amount).toFixed(2)}</td>
                             <td>{getStatusBadge(os.status)}</td>
                         </tr>
                     ))}
-                    {orders.length === 0 && <tr><td colSpan="6" style={{textAlign:'center', padding:'20px'}}>Nenhuma OS encontrada.</td></tr>}
+                    {orders.length === 0 && <tr><td colSpan="5" style={{textAlign:'center', padding:'2rem', color:'#666'}}>Nenhuma OS encontrada.</td></tr>}
                 </tbody>
             </table>
         </div>
@@ -126,15 +127,9 @@ export default function ServiceOrders() {
         <form onSubmit={handleCreate} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
             <div>
                 <label className={styles.label}>Cliente</label>
-                <select 
-                    className={styles.input} 
-                    value={newOS.client_id} 
-                    onChange={e => setNewOS({...newOS, client_id: e.target.value, client_name: ''})}
-                >
+                <select className={styles.input} value={newOS.client_id} onChange={e => setNewOS({...newOS, client_id: e.target.value, client_name: ''})}>
                     <option value="">-- Cliente Avulso --</option>
-                    {clients.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
             </div>
             {!newOS.client_id && (
@@ -143,24 +138,36 @@ export default function ServiceOrders() {
                     <input required className={styles.input} value={newOS.client_name} onChange={e => setNewOS({...newOS, client_name: e.target.value})} />
                 </div>
             )}
+            
             <div>
-                <label className={styles.label}>Equipamento / Veículo / Objeto</label>
-                <input required className={styles.input} value={newOS.equipment} onChange={e => setNewOS({...newOS, equipment: e.target.value})} placeholder="Ex: Notebook Dell, Honda Civic..." />
+                <label className={styles.label}>Objeto / Equipamento</label>
+                <input required className={styles.input} value={newOS.equipment} onChange={e => setNewOS({...newOS, equipment: e.target.value})} placeholder="Ex: Notebook Dell, Honda Civic" />
             </div>
+
+            {/* RENDERIZAÇÃO DOS CAMPOS DINÂMICOS (PLACA, KM, ETC) */}
+            {customFields.length > 0 && (
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', background:'#f9fafb', padding:'10px', borderRadius:'6px', border:'1px solid #e5e7eb'}}>
+                    {customFields.map(field => (
+                        <div key={field.id}>
+                            <label className={styles.label}>{field.label}</label>
+                            <input 
+                                className={styles.input} 
+                                value={newOS.customValues[field.id] || ''} 
+                                onChange={e => handleCustomChange(field.id, e.target.value)} 
+                                placeholder={field.label}
+                            />
+                        </div>
+                    ))}
+                </div>
+            )}
+
             <div>
-                <label className={styles.label}>Problema Relatado</label>
+                <label className={styles.label}>Descrição do Problema</label>
                 <textarea className={styles.input} style={{minHeight:'80px'}} value={newOS.description} onChange={e => setNewOS({...newOS, description: e.target.value})} />
             </div>
-            <div>
-                <label className={styles.label}>Prioridade</label>
-                <select className={styles.input} value={newOS.priority} onChange={e => setNewOS({...newOS, priority: e.target.value})}>
-                    <option value="low">Baixa</option>
-                    <option value="normal">Normal</option>
-                    <option value="high">Alta</option>
-                </select>
-            </div>
+            
             <button type="submit" className={styles.btnPrimary} style={{marginTop:'10px', width:'100%', justifyContent:'center'}}>
-                Criar e Adicionar Itens ➡
+                Criar OS
             </button>
         </form>
       </Modal>

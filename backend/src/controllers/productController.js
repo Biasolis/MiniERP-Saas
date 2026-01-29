@@ -1,14 +1,18 @@
 const { query } = require('../config/db');
 
-// Listar Produtos
+// Listar Produtos e Serviços
 const getProducts = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        // Traz produtos e calcula status do estoque
+        // Traz produtos e calcula margem e alertas
         const sql = `
             SELECT *, 
             (sale_price - cost_price) as profit_margin,
-            CASE WHEN stock <= min_stock THEN true ELSE false END as low_stock_alert
+            CASE 
+                WHEN type = 'service' THEN false
+                WHEN stock <= min_stock THEN true 
+                ELSE false 
+            END as low_stock_alert
             FROM products 
             WHERE tenant_id = $1 
             ORDER BY name ASC
@@ -17,26 +21,30 @@ const getProducts = async (req, res) => {
         return res.json(result.rows);
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ message: 'Erro ao listar produtos.' });
+        return res.status(500).json({ message: 'Erro ao listar itens.' });
     }
 };
 
-// Obter Produto Detalhado (Com Histórico)
+// Obter Detalhes (Com Histórico)
 const getProductDetails = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const productId = req.params.id;
 
         const prodResult = await query('SELECT * FROM products WHERE id = $1 AND tenant_id = $2', [productId, tenantId]);
-        if (prodResult.rows.length === 0) return res.status(404).json({ message: 'Produto não encontrado.' });
+        if (prodResult.rows.length === 0) return res.status(404).json({ message: 'Item não encontrado.' });
 
-        const historyResult = await query(`
-            SELECT m.*, u.name as user_name 
-            FROM inventory_movements m
-            LEFT JOIN users u ON m.created_by = u.id
-            WHERE m.product_id = $1 
-            ORDER BY m.created_at DESC LIMIT 20
-        `, [productId]);
+        // Busca histórico apenas se for produto
+        let historyResult = { rows: [] };
+        if (prodResult.rows[0].type !== 'service') {
+            historyResult = await query(`
+                SELECT m.*, u.name as user_name 
+                FROM inventory_movements m
+                LEFT JOIN users u ON m.created_by = u.id
+                WHERE m.product_id = $1 
+                ORDER BY m.created_at DESC LIMIT 20
+            `, [productId]);
+        }
 
         return res.json({ product: prodResult.rows[0], history: historyResult.rows });
     } catch (error) {
@@ -44,36 +52,51 @@ const getProductDetails = async (req, res) => {
     }
 };
 
-// Criar Produto
+// Criar Produto ou Serviço
 const createProduct = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const userId = req.user.id;
-        const { name, description, sale_price, cost_price, stock, min_stock, sku, unit, category } = req.body;
+        
+        // CORREÇÃO: Lê 'price' (que vem do front) ou 'sale_price'
+        const { 
+            name, description, price, sale_price, cost_price, 
+            stock, min_stock, sku, unit, category, type 
+        } = req.body;
 
         if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
 
-        // Inicia transação (segurança de dados)
+        const itemType = type || 'product';
+        const finalSalePrice = Number(price) || Number(sale_price) || 0;
+        const initialStock = itemType === 'service' ? 0 : (Number(stock) || 0);
+        const minStockVal = itemType === 'service' ? 0 : (Number(min_stock) || 5);
+
         await query('BEGIN');
 
         const insertSql = `
-            INSERT INTO products (tenant_id, name, description, sale_price, cost_price, stock, min_stock, sku, unit, category)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO products (
+                tenant_id, name, description, sale_price, cost_price, 
+                stock, min_stock, sku, unit, category, type
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
         `;
+        
         const result = await query(insertSql, [
             tenantId, name, description, 
-            sale_price || 0, cost_price || 0, stock || 0, 
-            min_stock || 5, sku, unit || 'un', category
+            finalSalePrice, cost_price || 0, // Garante 0 se não vier nada
+            initialStock, minStockVal, 
+            sku, unit || 'un', category, itemType
         ]);
+        
         const newProduct = result.rows[0];
 
-        // Se criou com estoque inicial > 0, registra movimentação
-        if (stock > 0) {
+        // Registra entrada de estoque apenas se for Produto e tiver estoque inicial
+        if (itemType === 'product' && initialStock > 0) {
             await query(`
                 INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
                 VALUES ($1, $2, 'in', $3, 'adjustment', 'Estoque Inicial', $4)
-            `, [tenantId, newProduct.id, stock, userId]);
+            `, [tenantId, newProduct.id, initialStock, userId]);
         }
 
         await query('COMMIT');
@@ -82,53 +105,79 @@ const createProduct = async (req, res) => {
     } catch (error) {
         await query('ROLLBACK');
         console.error(error);
-        return res.status(500).json({ message: 'Erro ao criar produto.' });
+        return res.status(500).json({ message: 'Erro ao criar item.' });
     }
 };
 
-// Atualizar Produto (Dados básicos, não estoque direto)
+// Atualizar Produto
 const updateProduct = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const { id } = req.params;
-        const { name, description, sale_price, cost_price, min_stock, sku, unit, category } = req.body;
+        
+        const { 
+            name, description, price, sale_price, cost_price, 
+            min_stock, sku, unit, category, type, stock 
+        } = req.body;
+
+        const finalSalePrice = Number(price) || Number(sale_price) || 0;
+        
+        // Define estoque com base no tipo
+        let targetStock = stock;
+        if (type === 'service') {
+            targetStock = 0;
+        }
 
         const sql = `
             UPDATE products 
-            SET name=$1, description=$2, sale_price=$3, cost_price=$4, min_stock=$5, sku=$6, unit=$7, category=$8
-            WHERE id=$9 AND tenant_id=$10
+            SET name=$1, description=$2, sale_price=$3, cost_price=$4, 
+                min_stock=$5, sku=$6, unit=$7, category=$8, type=$9,
+                stock=$10
+            WHERE id=$11 AND tenant_id=$12
             RETURNING *
         `;
+        
         const result = await query(sql, [
-            name, description, sale_price, cost_price, min_stock, sku, unit, category,
+            name, description, finalSalePrice, cost_price || 0, // CORREÇÃO AQUI: Garante 0 se for null
+            type === 'service' ? 0 : (min_stock || 0), // Garante 0 se for null
+            sku, unit, category, type,
+            targetStock, 
             id, tenantId
         ]);
+
+        if (result.rows.length === 0) return res.status(404).json({ message: 'Item não encontrado.' });
         return res.json(result.rows[0]);
+
     } catch (error) {
+        console.error('Erro Update:', error);
         return res.status(500).json({ message: 'Erro ao atualizar.' });
     }
 };
 
-// Ajustar Estoque (Entrada/Saída Manual)
+// Ajustar Estoque (Apenas para Produtos)
 const adjustStock = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const userId = req.user.id;
         const { id } = req.params;
-        const { type, quantity, reason, notes } = req.body; // type: 'in' ou 'out'
+        const { type, quantity, reason, notes } = req.body; 
 
         if (!quantity || quantity <= 0) return res.status(400).json({ message: 'Quantidade inválida.' });
 
+        const checkType = await query('SELECT type, stock FROM products WHERE id = $1', [id]);
+        if (checkType.rows.length === 0) return res.status(404).json({ message: 'Item não encontrado.' });
+        
+        if (checkType.rows[0].type === 'service') {
+            return res.status(400).json({ message: 'Não é possível ajustar estoque de Serviços.' });
+        }
+
         await query('BEGIN');
 
-        // 1. Atualiza Tabela Produto
         let updateSql = '';
         if (type === 'in') {
             updateSql = 'UPDATE products SET stock = stock + $1 WHERE id = $2 AND tenant_id = $3 RETURNING stock';
         } else {
-            // Verifica se tem saldo antes de sair
-            const check = await query('SELECT stock FROM products WHERE id = $1', [id]);
-            if (check.rows[0].stock < quantity) {
+            if (checkType.rows[0].stock < quantity) {
                 await query('ROLLBACK');
                 return res.status(400).json({ message: 'Estoque insuficiente.' });
             }
@@ -137,7 +186,6 @@ const adjustStock = async (req, res) => {
         
         const updateRes = await query(updateSql, [quantity, id, tenantId]);
 
-        // 2. Registra Movimentação
         await query(`
             INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -152,12 +200,19 @@ const adjustStock = async (req, res) => {
     }
 };
 
+// Remover Produto
 const deleteProduct = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const { id } = req.params;
+
+        const checkOS = await query('SELECT id FROM service_order_items WHERE product_id = $1 LIMIT 1', [id]);
+        if (checkOS.rows.length > 0) {
+            return res.status(400).json({ message: 'Item usado em Ordens de Serviço. Não pode ser excluído.' });
+        }
+
         await query('DELETE FROM products WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
-        return res.json({ message: 'Produto removido.' });
+        return res.json({ message: 'Item removido.' });
     } catch (error) {
         return res.status(500).json({ message: 'Erro ao remover.' });
     }

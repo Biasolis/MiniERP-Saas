@@ -5,6 +5,7 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 router.use(authMiddleware);
 
-router.get('/stats', dashboardController.getGeneralStats);
+// Rota atualizada para bater com o novo Controller
+router.get('/stats', dashboardController.getDashboardStats);
 
 module.exports = router;
