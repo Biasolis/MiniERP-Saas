@@ -20,7 +20,10 @@ const auditRoutes = require('./routes/auditRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const calendarRoutes = require('./routes/calendarRoutes');
-const taskRoutes = require('./routes/taskRoutes'); // <--- NOVO
+const taskRoutes = require('./routes/taskRoutes');
+const planRoutes = require('./routes/planRoutes');
+const saleRoutes = require('./routes/saleRoutes');
+const entryRoutes = require('./routes/entryRoutes'); // --- NOVO ---
 
 const { apiLimiter, authLimiter } = require('./middlewares/rateLimiter');
 const logger = require('./config/logger');
@@ -56,10 +59,13 @@ app.use('/api/audit', auditRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/calendar', calendarRoutes);
-app.use('/api/tasks', taskRoutes); // <--- REGISTRADO
+app.use('/api/tasks', taskRoutes);
+app.use('/api/plans', planRoutes);
+app.use('/api/sales', saleRoutes);
+app.use('/api/entries', entryRoutes); // --- REGISTRADO ---
 
 app.get('/', (req, res) => {
-    res.json({ status: 'API Online 🚀', version: '1.7.0', mode: 'Tasks + Calendar V2' });
+    res.json({ status: 'API Online 🚀', version: '1.9.0', mode: 'Full ERP' });
 });
 
 module.exports = app;

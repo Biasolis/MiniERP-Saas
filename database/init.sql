@@ -452,3 +452,76 @@ UPDATE products SET stock = 0 WHERE type = 'service';
 
 -- Garante que a coluna type existe
 ALTER TABLE products ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'product';
+
+-- 1. Atualizar Tabela de Usuários (Taxa padrão do vendedor)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_rate DECIMAL(5,2) DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'; -- Garantir coluna role
+
+-- 2. Atualizar Tabela de Produtos (Taxa específica do produto - sobrepõe a do vendedor)
+ALTER TABLE products ADD COLUMN IF NOT EXISTS commission_rate DECIMAL(5,2) DEFAULT NULL;
+
+-- 3. Tabela de Vendas (Header)
+CREATE TABLE IF NOT EXISTS sales (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    seller_id UUID REFERENCES users(id), -- Quem vendeu
+    client_id INTEGER REFERENCES clients(id), -- Opcional (venda balcão)
+    total_amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'completed', -- completed, cancelled
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 4. Itens da Venda
+CREATE TABLE IF NOT EXISTS sale_items (
+    id SERIAL PRIMARY KEY,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    quantity DECIMAL(10,2) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    subtotal DECIMAL(10,2) NOT NULL,
+    commission_amount DECIMAL(10,2) DEFAULT 0 -- Valor da comissão gerada por ESTE item
+);
+
+-- 5. Controle de Comissões (Extrato)
+CREATE TABLE IF NOT EXISTS commissions (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    seller_id UUID REFERENCES users(id),
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    amount DECIMAL(10,2) NOT NULL, -- Total da comissão da venda
+    status VARCHAR(20) DEFAULT 'pending', -- pending (pendente), paid (paga)
+    created_at TIMESTAMP DEFAULT NOW(),
+    paid_at TIMESTAMP
+);
+
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_sales_tenant ON sales(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_sales_seller ON sales(seller_id);
+CREATE INDEX IF NOT EXISTS idx_commissions_seller ON commissions(seller_id);
+
+-- 1. Tabela de Entradas (Cabeçalho da Nota)
+CREATE TABLE IF NOT EXISTS product_entries (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    user_id UUID REFERENCES users(id),
+    invoice_number VARCHAR(50), -- Número da NF
+    invoice_url TEXT, -- Link do arquivo/foto da NF
+    supplier_name VARCHAR(100),
+    entry_date TIMESTAMP DEFAULT NOW(),
+    total_amount DECIMAL(10,2) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 2. Itens da Entrada
+CREATE TABLE IF NOT EXISTS product_entry_items (
+    id SERIAL PRIMARY KEY,
+    entry_id INTEGER REFERENCES product_entries(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    quantity INTEGER NOT NULL,
+    unit_cost DECIMAL(10,2) NOT NULL, -- Preço de Custo nesta nota
+    subtotal DECIMAL(10,2) NOT NULL
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_entries_tenant ON product_entries(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_entry_items_entry ON product_entry_items(entry_id);

@@ -30,10 +30,12 @@ import Reports from './pages/dashboard/Reports';
 import Clients from './pages/dashboard/Clients';
 import ClientDetails from './pages/dashboard/ClientDetails';
 
-// --- OPERACIONAL & ESTOQUE ---
+// --- OPERACIONAL & ESTOQUE & VENDAS ---
 import Products from './pages/dashboard/Products';
+import StockEntries from './pages/dashboard/StockEntries'; // <--- NOVO
+import Sales from './pages/dashboard/Sales'; // <--- NOVO
 import ServiceOrders from './pages/dashboard/ServiceOrders';
-import ServiceOrderDetails from './pages/dashboard/ServiceOrderDetails'; // <--- NOVO
+import ServiceOrderDetails from './pages/dashboard/ServiceOrderDetails';
 import PrintOS from './pages/dashboard/PrintOS';
 
 // --- SUPER ADMIN ---
@@ -103,8 +105,10 @@ function AppRoutes() {
       <Route path="/dashboard/recurring" element={<PrivateRoute><Recurring /></PrivateRoute>} />
       <Route path="/dashboard/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
 
-      {/* --- ESTOQUE & PRODUTOS --- */}
+      {/* --- ESTOQUE & VENDAS & PRODUTOS --- */}
       <Route path="/dashboard/products" element={<PrivateRoute><Products /></PrivateRoute>} />
+      <Route path="/dashboard/stock-entries" element={<PrivateRoute><StockEntries /></PrivateRoute>} /> {/* NOVO */}
+      <Route path="/dashboard/sales" element={<PrivateRoute><Sales /></PrivateRoute>} /> {/* NOVO */}
 
       {/* --- CRM (CLIENTES) --- */}
       <Route path="/dashboard/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />

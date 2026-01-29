@@ -1,21 +1,24 @@
 .sidebar {
-  background-color: var(--sidebar-bg);
-  color: var(--sidebar-text);
+  background-color: var(--sidebar-bg); /* #1f2937 ou similar */
+  color: #e5e7eb;
   height: 100vh;
   display: flex;
   flex-direction: column;
   padding: 1.5rem;
   border-right: 1px solid #374151;
-  position: fixed; /* Fixa na esquerda */
+  position: fixed;
   width: 260px;
   left: 0;
   top: 0;
+  z-index: 50;
 }
 
-.logoArea {
-  margin-bottom: 3rem;
+/* Área do Logo */
+.logo {
+  margin-bottom: 1.5rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid #374151;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .companyName {
@@ -24,23 +27,51 @@
   color: white;
 }
 
+/* Área de Navegação (Com Scroll Discreto) */
 .nav {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   flex: 1;
+  overflow-y: auto; /* Habilita rolagem */
+  padding-right: 5px; /* Espaço para o scroll não colar */
+
+  /* Firefox - Barra fina */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
+/* --- Estilização da Barra de Rolagem (Chrome, Edge, Safari) --- */
+
+.nav::-webkit-scrollbar {
+  width: 6px; /* Largura fina */
+}
+
+.nav::-webkit-scrollbar-track {
+  background: transparent; /* Fundo transparente */
+}
+
+.nav::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.2); /* Cor cinza/branca translúcida */
+  border-radius: 20px; /* Bordas arredondadas */
+}
+
+.nav::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.4); /* Destaque ao passar o mouse */
+}
+
+/* Links do Menu */
 .link {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border-radius: var(--radius);
+  border-radius: 8px;
   text-decoration: none;
   color: #9ca3af;
   font-weight: 500;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .link:hover {
@@ -51,26 +82,78 @@
 .active {
   background-color: var(--primary-color);
   color: white;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
+/* Rodapé */
 .footer {
   border-top: 1px solid #374151;
   padding-top: 1rem;
+  margin-top: 1rem;
+  flex-shrink: 0;
+  background-color: var(--sidebar-bg);
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 0 5px;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.userName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.userRole {
+  font-size: 0.75rem;
+  color: #9ca3af;
 }
 
 .logoutBtn {
-  background: none;
-  border: none;
-  color: #ef4444; /* Vermelho suave */
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
-  padding: 0.5rem;
+  padding: 0.75rem;
   width: 100%;
+  border-radius: 8px;
+  transition: all 0.2s;
 }
 
 .logoutBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
   color: #fca5a5;
 }

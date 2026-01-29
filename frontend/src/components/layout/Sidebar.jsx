@@ -4,7 +4,7 @@ import styles from './Sidebar.module.css';
 import { 
   LayoutDashboard, Receipt, BarChart3, Settings as SettingsIcon, LogOut, 
   ClipboardList, Users, Repeat, Package, Shield, Bell, UserCircle, Download, 
-  Calendar as CalendarIcon, CheckSquare, Layers 
+  Calendar as CalendarIcon, CheckSquare, Layers, ShoppingCart, PackagePlus 
 } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
 
@@ -33,7 +33,6 @@ export default function Sidebar() {
   return (
     <aside className={styles.sidebar}>
       {/* --- LOGO DO SISTEMA --- */}
-      {/* MUDANÇA: Adicionado style marginBottom para afastar o menu */}
       <div className={styles.logo} style={{ marginBottom: '2.5rem' }}>
         <div style={{
             width:'48px', height:'48px', 
@@ -54,6 +53,11 @@ export default function Sidebar() {
           <LayoutDashboard size={20} /> Visão Geral
         </Link>
         
+        {/* NOVO: Vendas / PDV */}
+        <Link to="/dashboard/sales" className={`${styles.link} ${isActive('/dashboard/sales') ? styles.active : ''}`}>
+          <ShoppingCart size={20} /> Vendas / PDV
+        </Link>
+
         <Link to="/dashboard/calendar" className={`${styles.link} ${isActive('/dashboard/calendar') ? styles.active : ''}`}>
           <CalendarIcon size={20} /> Agenda
         </Link>
@@ -76,6 +80,11 @@ export default function Sidebar() {
 
         <Link to="/dashboard/products" className={`${styles.link} ${isActive('/dashboard/products') ? styles.active : ''}`}>
           <Package size={20} /> Produtos e Serviços
+        </Link>
+
+        {/* NOVO: Entrada de Estoque */}
+        <Link to="/dashboard/stock-entries" className={`${styles.link} ${isActive('/dashboard/stock-entries') ? styles.active : ''}`}>
+          <PackagePlus size={20} /> Entrada de Estoque
         </Link>
 
         <Link to="/dashboard/clients" className={`${styles.link} ${isActive('/dashboard/clients') ? styles.active : ''}`}>

@@ -1,0 +1,181 @@
+.container {
+    display: grid;
+    grid-template-columns: 2fr 1.2fr;
+    gap: 1.5rem;
+    height: calc(100vh - 100px); /* Ajuste conforme seu layout */
+}
+
+@media(max-width: 900px) {
+    .container { grid-template-columns: 1fr; height: auto; }
+}
+
+/* COLUNA PRODUTOS */
+.productsCol {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border: 1px solid #e5e7eb;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.header h2 { font-size: 1.5rem; font-weight: 700; color: #111827; margin: 0; }
+
+.searchBox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f9fafb;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    width: 300px;
+}
+
+.searchBox input { border: none; background: transparent; width: 100%; outline: none; }
+
+.productList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.productCard {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.productCard:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+.prodInfo { display: flex; flex-direction: column; gap: 4px; }
+.prodName { font-weight: 600; color: #374151; font-size: 0.95rem; }
+.prodMeta { display: flex; gap: 8px; align-items: center; }
+.prodPrice { font-weight: 700; color: var(--primary-color); }
+.stockBadge { font-size: 0.75rem; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; color: #6b7280; }
+.noStock { color: #ef4444; background: #fee2e2; }
+
+.btnAdd {
+    background: #f3f4f6; border: none; width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; color: #374151; cursor: pointer;
+}
+.productCard:hover .btnAdd { background: var(--primary-color); color: white; }
+
+/* COLUNA CARRINHO */
+.cartCol {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.clientSelect {
+    padding: 1.5rem;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.clientSelect select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: white;
+}
+
+.cartItems {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+.emptyCart {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+    gap: 10px;
+}
+
+.cartItem {
+    padding: 10px;
+    border-bottom: 1px dashed #e5e7eb;
+}
+
+.cartItemInfo { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.cartItemName { font-weight: 600; color: #374151; }
+.cartItemPrice { font-size: 0.85rem; color: #6b7280; }
+
+.cartControls { display: flex; align-items: center; justify-content: space-between; }
+.cartControls input { width: 50px; padding: 4px; border: 1px solid #d1d5db; border-radius: 4px; text-align: center; }
+.itemSubtotal { font-weight: 700; color: #111827; }
+.btnRemove { background: transparent; border: none; color: #ef4444; cursor: pointer; }
+
+.cartFooter {
+    padding: 1.5rem;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+}
+
+.totalRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #111827;
+    margin-bottom: 1rem;
+}
+
+.btnFinish {
+    width: 100%;
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btnFinish:hover { background: #059669; }
+.btnFinish:disabled { background: #d1d5db; cursor: not-allowed; }
+
+/* MODAL */
+.modalIcon {
+    width: 60px; height: 60px; background: #10b981; border-radius: 50%;
+    margin: 0 auto 15px; display: flex; align-items: center; justify-content: center;
+}
+.btnCancel { background: white; border: 1px solid #d1d5db; padding: 10px 20px; border-radius: 6px; cursor: pointer; }
+.btnConfirm { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; }
