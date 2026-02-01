@@ -23,8 +23,10 @@ const calendarRoutes = require('./routes/calendarRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const planRoutes = require('./routes/planRoutes');
 const saleRoutes = require('./routes/saleRoutes');
-const entryRoutes = require('./routes/entryRoutes'); // --- NOVO ---
+const entryRoutes = require('./routes/entryRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
+const quoteRoutes = require('./routes/quoteRoutes'); // Necessário salvar o arquivo quoteRoutes.js
+const pcpRoutes = require('./routes/pcpRoutes');     // Necessário salvar o arquivo pcpRoutes.js
 
 const { apiLimiter, authLimiter } = require('./middlewares/rateLimiter');
 const logger = require('./config/logger');
@@ -63,11 +65,13 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/plans', planRoutes);
 app.use('/api/sales', saleRoutes);
-app.use('/api/entries', entryRoutes); // --- REGISTRADO ---
+app.use('/api/entries', entryRoutes);
 app.use('/api/suppliers', supplierRoutes);
+app.use('/api/quotes', quoteRoutes); // Confirma que quoteRoutes.js existe
+app.use('/api/pcp', pcpRoutes);     // Confirma que pcpRoutes.js existe
 
 app.get('/', (req, res) => {
-    res.json({ status: 'API Online 🚀', version: '1.9.0', mode: 'Full ERP' });
+    res.json({ status: 'API Online 🚀', version: '1.9.5', mode: 'Full ERP + PCP' });
 });
 
 module.exports = app;

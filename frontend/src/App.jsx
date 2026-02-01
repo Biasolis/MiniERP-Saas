@@ -33,11 +33,15 @@ import ClientDetails from './pages/dashboard/ClientDetails';
 
 // --- OPERACIONAL & ESTOQUE & VENDAS ---
 import Products from './pages/dashboard/Products';
-import StockEntries from './pages/dashboard/StockEntries'; // <--- NOVO
-import Sales from './pages/dashboard/Sales'; // <--- NOVO
+import StockEntries from './pages/dashboard/StockEntries';
+import Sales from './pages/dashboard/Sales';
+import Quotes from './pages/dashboard/Quotes'; // <--- NOVO
+import QuoteDetails from './pages/dashboard/QuoteDetails'; // <--- NOVO
 import ServiceOrders from './pages/dashboard/ServiceOrders';
 import ServiceOrderDetails from './pages/dashboard/ServiceOrderDetails';
 import PrintOS from './pages/dashboard/PrintOS';
+import PcpDashboard from './pages/dashboard/PcpDashboard';
+import PcpDetails from './pages/dashboard/PcpDetails';
 
 // --- SUPER ADMIN ---
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -107,10 +111,14 @@ function AppRoutes() {
       <Route path="/dashboard/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
       <Route path="/dashboard/suppliers" element={<PrivateRoute><Suppliers /></PrivateRoute>} />
 
-      {/* --- ESTOQUE & VENDAS & PRODUTOS --- */}
+      {/* --- ESTOQUE & VENDAS & ORÇAMENTOS --- */}
       <Route path="/dashboard/products" element={<PrivateRoute><Products /></PrivateRoute>} />
-      <Route path="/dashboard/stock-entries" element={<PrivateRoute><StockEntries /></PrivateRoute>} /> {/* NOVO */}
-      <Route path="/dashboard/sales" element={<PrivateRoute><Sales /></PrivateRoute>} /> {/* NOVO */}
+      <Route path="/dashboard/stock-entries" element={<PrivateRoute><StockEntries /></PrivateRoute>} />
+      <Route path="/dashboard/sales" element={<PrivateRoute><Sales /></PrivateRoute>} />
+      
+      {/* Rotas de Orçamento */}
+      <Route path="/dashboard/quotes" element={<PrivateRoute><Quotes /></PrivateRoute>} />
+      <Route path="/dashboard/quotes/:id" element={<PrivateRoute><QuoteDetails /></PrivateRoute>} />
 
       {/* --- CRM (CLIENTES) --- */}
       <Route path="/dashboard/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
@@ -119,6 +127,10 @@ function AppRoutes() {
       {/* --- ORDENS DE SERVIÇO --- */}
       <Route path="/dashboard/service-orders" element={<PrivateRoute><ServiceOrders /></PrivateRoute>} />
       <Route path="/dashboard/service-orders/:id" element={<PrivateRoute><ServiceOrderDetails /></PrivateRoute>} />
+
+      {/* --- MODULO PCP --- */}
+      <Route path="/dashboard/pcp" element={<PrivateRoute><PcpDashboard /></PrivateRoute>} />
+      <Route path="/dashboard/pcp/:id" element={<PrivateRoute><PcpDetails /></PrivateRoute>} />
 
       {/* --- CONFIGURAÇÕES & SISTEMA --- */}
       <Route path="/dashboard/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
@@ -135,6 +147,7 @@ function AppRoutes() {
       {/* --- REDIRECIONAMENTOS --- */}
       <Route path="/" element={<Navigate to="/dashboard" />} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
+
     </Routes>
   );
 }

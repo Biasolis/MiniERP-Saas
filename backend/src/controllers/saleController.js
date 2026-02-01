@@ -7,7 +7,8 @@ const createSale = async (req, res) => {
         const sellerId = req.user.id;
         const { 
             client_id, items, 
-            payment_method, discount, amount_paid, notes // Novos campos do Checkout
+            payment_method, discount, amount_paid, notes,
+            installments // <--- NOVO CAMPO (Número de parcelas)
         } = req.body;
 
         if (!items || items.length === 0) {
@@ -16,12 +17,11 @@ const createSale = async (req, res) => {
 
         await query('BEGIN');
 
-        // 1. Busca dados do vendedor (para comissão padrão)
+        // 1. Busca dados do vendedor (para comissão)
         const userRes = await query('SELECT commission_rate FROM users WHERE id = $1', [sellerId]);
         const sellerDefaultCommission = Number(userRes.rows[0]?.commission_rate || 0);
 
-        // 2. Cria a Venda (Header)
-        // Inserimos com valores iniciais, depois atualizamos o total calculado
+        // 2. Cria Cabeçalho da Venda
         const saleRes = await query(
             `INSERT INTO sales (
                 tenant_id, seller_id, client_id, total_amount, 
@@ -29,7 +29,7 @@ const createSale = async (req, res) => {
             ) VALUES ($1, $2, $3, 0, 'completed', $4, $5, $6, $7, $8) RETURNING id`,
             [
                 tenantId, sellerId, client_id || null, 
-                payment_method || 'money', 
+                payment_method || 'cash', 
                 discount || 0, 
                 amount_paid || 0, 
                 0, 
@@ -63,11 +63,11 @@ const createSale = async (req, res) => {
                 return res.status(400).json({ message: `Estoque insuficiente para: ${product.name}` });
             }
 
-            // Lógica de Comissão
+            // Comissão
             const rateToUse = product.commission_rate !== null ? Number(product.commission_rate) : sellerDefaultCommission;
             const itemCommission = subtotal * (rateToUse / 100);
 
-            // Insere Item da Venda
+            // Insere Item
             await query(
                 `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal, commission_amount)
                  VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -88,7 +88,7 @@ const createSale = async (req, res) => {
             totalCommissionAmount += itemCommission;
         }
 
-        // 4. Cálculos Finais (Total, Troco)
+        // 4. Cálculos Finais
         const finalTotal = totalItemsAmount - (Number(discount) || 0);
         const change = (Number(amount_paid) || 0) - finalTotal;
 
@@ -98,23 +98,52 @@ const createSale = async (req, res) => {
             [finalTotal, change > 0 ? change : 0, saleId]
         );
 
-        // 5. Gera Transação Financeira (Receita)
+        // 5. GERAÇÃO FINANCEIRA (COM PARCELAMENTO)
+        const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
         const methodMap = { 'money': 'Dinheiro', 'credit': 'Crédito', 'debit': 'Débito', 'pix': 'PIX' };
         const methodLabel = methodMap[payment_method] || payment_method;
 
-        await query(
-            `INSERT INTO transactions (tenant_id, description, amount, type, status, date, client_id, created_by)
-             VALUES ($1, $2, $3, 'income', 'completed', NOW(), $4, $5)`,
-            [
-                tenantId, 
-                `Venda PDV #${saleId} (${methodLabel})`, 
-                finalTotal, 
-                client_id || null, 
-                sellerId
-            ]
-        );
+        // Lógica de divisão de valor
+        const installmentValue = Math.floor((finalTotal / numInstallments) * 100) / 100;
+        const remainder = finalTotal - (installmentValue * numInstallments); // Centavos que sobram
 
-        // 6. Registra Comissão Pendente
+        for (let i = 0; i < numInstallments; i++) {
+            // Se for a última parcela, soma a diferença de centavos
+            const amount = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
+            
+            // Calcula Data de Vencimento (Hoje + 30 dias * i)
+            const dueDate = new Date();
+            dueDate.setDate(dueDate.getDate() + (30 * i)); // Regra simples de 30 dias
+
+            // Status: Se for dinheiro/pix ou cartão à vista (1x), já nasce pago. Se for prazo, nasce pendente.
+            // Aqui vamos assumir: Vendas PDV geralmente já nascem pagas ou a primeira paga.
+            // Para simplificar PDV: Tudo 'completed' pois assume-se que passou o cartão na hora.
+            // Se fosse boleto, seria 'pending'. Vamos manter 'completed' para PDV padrão por enquanto.
+            const status = 'completed'; 
+
+            const desc = numInstallments > 1 
+                ? `Venda PDV #${saleId} (${methodLabel}) - Parcela ${i+1}/${numInstallments}`
+                : `Venda PDV #${saleId} (${methodLabel})`;
+
+            await query(
+                `INSERT INTO transactions (
+                    tenant_id, description, amount, type, status, date, client_id, created_by, installment_index, installments_total
+                ) VALUES ($1, $2, $3, 'income', $4, $5, $6, $7, $8, $9)`,
+                [
+                    tenantId, 
+                    desc, 
+                    amount, 
+                    status, 
+                    dueDate, 
+                    client_id || null, 
+                    sellerId,
+                    i + 1,
+                    numInstallments
+                ]
+            );
+        }
+
+        // 6. Comissão
         if (totalCommissionAmount > 0) {
             await query(
                 `INSERT INTO commissions (tenant_id, seller_id, sale_id, amount, status)
@@ -151,7 +180,7 @@ const getSales = async (req, res) => {
     }
 };
 
-// Obter Detalhes da Venda
+// Detalhes da Venda
 const getSaleDetails = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;

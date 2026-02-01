@@ -564,3 +564,181 @@ ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS transaction_id UUID REFERENC
 -- Garantir colunas de totais
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS total_parts DECIMAL(10,2) DEFAULT 0;
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS total_services DECIMAL(10,2) DEFAULT 0;
+
+-- Adicionar mensagem de rodapé personalizada na configuração da empresa
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS footer_message TEXT DEFAULT 'Obrigado pela preferência! Garantia de 90 dias para serviços.';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(255);
+
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS document VARCHAR(20); -- CNPJ/CPF
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email_contact VARCHAR(100);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS footer_message TEXT DEFAULT 'Garantia de 90 dias.';
+
+-- Adicionar controle de parcelas nas transações
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS installment_index INT DEFAULT 1; -- Número da parcela (1, 2, 3...)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS installments_total INT DEFAULT 1; -- Total de parcelas (3)
+
+-- 1. Adicionar campos de Endereço na tabela de Clientes
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS zip_code VARCHAR(10);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS street VARCHAR(150);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS number VARCHAR(20);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS complement VARCHAR(100);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS neighborhood VARCHAR(100);
+-- (City e State já existem, mas garantimos aqui)
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS state VARCHAR(2);
+
+-- 2. Criar Tabela de Projetos / Oportunidades (CRM)
+-- CORREÇÃO: client_id definido como INTEGER para coincidir com clients.id
+CREATE TABLE IF NOT EXISTS client_projects (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, 
+    title VARCHAR(200) NOT NULL, 
+    description TEXT,
+    value DECIMAL(10, 2) DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'lead', -- lead, negotiation, in_progress, completed, lost
+    due_date DATE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 3. Criar Índices
+CREATE INDEX IF NOT EXISTS idx_projects_client ON client_projects(client_id);
+CREATE INDEX IF NOT EXISTS idx_projects_tenant ON client_projects(tenant_id);
+
+-- Adicionar colunas para controle de parcelamento
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS installment_index INTEGER DEFAULT 1; -- Qual é a parcela (1, 2...)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS installments_total INTEGER DEFAULT 1; -- Total de parcelas (ex: 12)
+
+-- Tabela de Cabeçalho de Orçamentos
+CREATE TABLE IF NOT EXISTS quotes (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    client_id INTEGER REFERENCES clients(id),
+    client_name VARCHAR(255), -- Snapshot do nome caso seja cliente avulso ou editado
+    status VARCHAR(20) DEFAULT 'open', -- open, approved, rejected, converted
+    total_amount DECIMAL(10,2) DEFAULT 0,
+    discount DECIMAL(10,2) DEFAULT 0,
+    notes TEXT,
+    valid_until DATE, -- Validade da proposta
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Itens do Orçamento
+CREATE TABLE IF NOT EXISTS quote_items (
+    id SERIAL PRIMARY KEY,
+    quote_id INTEGER REFERENCES quotes(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id),
+    description VARCHAR(255),
+    quantity DECIMAL(10,2) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    subtotal DECIMAL(10,2) NOT NULL
+);
+
+-- Índice
+CREATE INDEX IF NOT EXISTS idx_quotes_tenant ON quotes(tenant_id);
+
+-- 1. Tabela de Drivers de Custo (Base de Cálculo Customizável)
+-- Ex: "Hora Máquina", "Energia Elétrica", "Mão de Obra"
+CREATE TABLE IF NOT EXISTS pcp_cost_drivers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    unit VARCHAR(20) DEFAULT 'R$', -- R$, %, h, un
+    default_value DECIMAL(10, 2) DEFAULT 0,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Tabela de Ordens de Produção (Cabeçalho)
+CREATE TABLE IF NOT EXISTS pcp_production_orders (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id), -- Produto final a ser produzido
+    quantity DECIMAL(10,2) NOT NULL, -- Qtd a produzir
+    status VARCHAR(20) DEFAULT 'planned', -- planned, in_production, quality_check, completed, cancelled
+    start_date DATE,
+    due_date DATE,
+    
+    -- Custos Consolidados
+    total_raw_material DECIMAL(10, 2) DEFAULT 0, -- Soma dos insumos
+    total_operation_cost DECIMAL(10, 2) DEFAULT 0, -- Soma dos drivers
+    total_cost DECIMAL(10, 2) DEFAULT 0,
+    unit_cost DECIMAL(10, 2) DEFAULT 0, -- Custo final unitário
+    
+    notes TEXT,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Itens consumidos na Ordem (Matéria Prima / Insumos)
+CREATE TABLE IF NOT EXISTS pcp_order_items (
+    id SERIAL PRIMARY KEY,
+    production_order_id INTEGER REFERENCES pcp_production_orders(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id), -- Matéria prima
+    quantity DECIMAL(10,2) NOT NULL,
+    unit_cost DECIMAL(10,2) NOT NULL, -- Custo no momento da produção
+    subtotal DECIMAL(10,2) NOT NULL
+);
+
+-- 4. Valores dos Drivers aplicados nesta Ordem Específica
+CREATE TABLE IF NOT EXISTS pcp_order_costs (
+    id SERIAL PRIMARY KEY,
+    production_order_id INTEGER REFERENCES pcp_production_orders(id) ON DELETE CASCADE,
+    driver_id UUID REFERENCES pcp_cost_drivers(id),
+    name VARCHAR(100), -- Snapshot do nome para histórico
+    value DECIMAL(10, 2) NOT NULL -- Valor aplicado nesta ordem
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_pcp_orders_tenant ON pcp_production_orders(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_pcp_drivers_tenant ON pcp_cost_drivers(tenant_id);
+
+-- Adicionar coluna de status ativo na tabela de usuários
+ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+
+-- Categorias Financeiras (Ex: Vendas, Serviços, Energia, Aluguel)
+CREATE TABLE IF NOT EXISTS categories (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(50) NOT NULL,
+    type VARCHAR(20) NOT NULL, -- 'income' ou 'expense'
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Transações Financeiras (Já deve existir, mas reforçando colunas importantes)
+CREATE TABLE IF NOT EXISTS transactions (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    description VARCHAR(255) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    type VARCHAR(20) NOT NULL, -- 'income' ou 'expense'
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'completed', 'cancelled'
+    date DATE NOT NULL, -- Data de Vencimento ou Pagamento
+    category_id INTEGER REFERENCES categories(id),
+    client_id INTEGER REFERENCES clients(id),
+    supplier_id INTEGER REFERENCES suppliers(id),
+    
+    -- Controle de Parcelas
+    installment_index INTEGER DEFAULT 1,
+    installments_total INTEGER DEFAULT 1,
+    
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_transactions_tenant ON transactions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+
+-- Adicionar coluna supplier_id na tabela transactions
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id);
+
+-- Criar índice para performance
+CREATE INDEX IF NOT EXISTS idx_transactions_supplier ON transactions(supplier_id);

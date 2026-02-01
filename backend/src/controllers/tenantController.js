@@ -19,6 +19,7 @@ const getTenantSettings = async (req, res) => {
         if (result.rows.length === 0) return res.status(404).json({ message: 'Empresa não encontrada.' });
         return res.json(result.rows[0]);
     } catch (error) {
+        console.error(error);
         return res.status(500).json({ message: 'Erro ao carregar configurações.' });
     }
 };
@@ -26,23 +27,27 @@ const getTenantSettings = async (req, res) => {
 const updateTenantSettings = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { name, closing_day, address, phone, document, email_contact, website, footer_message } = req.body;
+        const { name, closing_day, address, phone, document, email_contact, website, footer_message, primary_color, secondary_color } = req.body;
 
         if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
 
         const sql = `
             UPDATE tenants 
             SET name=$1, closing_day=$2, address=$3, phone=$4, document=$5, 
-                email_contact=$6, website=$7, footer_message=$8, updated_at=NOW()
-            WHERE id=$9
+                email_contact=$6, website=$7, footer_message=$8, 
+                primary_color=$9, secondary_color=$10, updated_at=NOW()
+            WHERE id=$11
             RETURNING *
         `;
         const result = await query(sql, [
             name, closing_day || 1, address, phone, document, 
-            email_contact, website, footer_message, tenantId
+            email_contact, website, footer_message, 
+            primary_color || '#000000', secondary_color || '#ffffff',
+            tenantId
         ]);
         return res.json(result.rows[0]);
     } catch (error) {
+        console.error(error);
         return res.status(500).json({ message: 'Erro ao salvar.' });
     }
 };
@@ -53,9 +58,14 @@ const updateTenantSettings = async (req, res) => {
 const getTeam = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const result = await query('SELECT id, name, email, role, is_super_admin, created_at, avatar_path FROM users WHERE tenant_id = $1 ORDER BY created_at DESC', [tenantId]);
+        // Agora que você rodou o SQL acima, esta query funcionará
+        const result = await query(
+            'SELECT id, name, email, role, is_super_admin, created_at, avatar_path, active FROM users WHERE tenant_id = $1 ORDER BY created_at DESC', 
+            [tenantId]
+        );
         return res.json(result.rows);
     } catch (error) {
+        console.error("Erro na query de equipe:", error); // Log para ajudar no debug
         return res.status(500).json({ message: 'Erro ao carregar equipe.' });
     }
 };
@@ -69,20 +79,24 @@ const addMember = async (req, res) => {
 
         const tenantCheck = await query('SELECT max_users FROM tenants WHERE id = $1', [tenantId]);
         const countCheck = await query('SELECT COUNT(*) FROM users WHERE tenant_id = $1', [tenantId]);
+        
         if (parseInt(countCheck.rows[0].count) >= tenantCheck.rows[0].max_users) {
             return res.status(403).json({ message: 'Limite de usuários atingido.' });
         }
 
         const check = await query('SELECT id FROM users WHERE email = $1', [email]);
-        if (check.rows.length > 0) return res.status(400).json({ message: 'Email em uso.' });
+        if (check.rows.length > 0) return res.status(400).json({ message: 'Email já está em uso.' });
 
         const hashedPassword = await hashPassword(password);
+        
+        // Garante que active seja true na criação
         const result = await query(
-            `INSERT INTO users (tenant_id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role`,
+            `INSERT INTO users (tenant_id, name, email, password_hash, role, active) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, name, email, role`,
             [tenantId, name, email, hashedPassword, role || 'user']
         );
         return res.status(201).json(result.rows[0]);
     } catch (error) {
+        console.error(error);
         return res.status(500).json({ message: 'Erro ao criar usuário.' });
     }
 };
@@ -103,7 +117,7 @@ const removeMember = async (req, res) => {
 };
 
 // ==========================================
-// 3. CAMPOS PERSONALIZADOS (NOVO - Fix para OS Dinâmica)
+// 3. CAMPOS PERSONALIZADOS
 // ==========================================
 const getCustomFields = async (req, res) => {
     try {
@@ -134,7 +148,7 @@ const saveCustomField = async (req, res) => {
         if(!label) return res.status(400).json({ message: 'Nome do campo obrigatório.' });
 
         const result = await query(
-            `INSERT INTO custom_field_definitions (tenant_id, label, module, type) VALUES ($1, $2, $3, $4) RETURNING *`,
+            `INSERT INTO custom_field_definitions (tenant_id, label, module, type, active) VALUES ($1, $2, $3, $4, true) RETURNING *`,
             [tenantId, label, module || 'service_order', type || 'text']
         );
         return res.status(201).json(result.rows[0]);
@@ -157,5 +171,12 @@ const deleteCustomField = async (req, res) => {
 module.exports = {
     getTenantSettings, updateTenantSettings,
     getTeam, addMember, removeMember,
-    getCustomFields, saveCustomField, deleteCustomField
+    getCustomFields, saveCustomField, deleteCustomField,
+    // Aliases
+    getSettings: getTenantSettings,
+    updateSettings: updateTenantSettings,
+    getUsers: getTeam,
+    createUser: addMember,
+    deleteUser: removeMember,
+    createCustomField: saveCustomField
 };

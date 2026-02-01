@@ -28,6 +28,7 @@ export default function Sales() {
         payment_method: 'money', // money, credit, debit, pix
         discount: '',
         amount_paid: '',
+        installments: 1, // <--- NOVO: Parcelas
         notes: ''
     });
 
@@ -103,7 +104,8 @@ export default function Sales() {
         setCheckoutData({
             payment_method: 'money',
             discount: '',
-            amount_paid: '', // Começa vazio para obrigar digitar se for dinheiro
+            amount_paid: '', 
+            installments: 1,
             notes: ''
         });
         setIsCheckoutOpen(true);
@@ -121,7 +123,8 @@ export default function Sales() {
                 })),
                 ...checkoutData,
                 discount: Number(checkoutData.discount) || 0,
-                amount_paid: Number(checkoutData.amount_paid) || 0
+                amount_paid: Number(checkoutData.amount_paid) || 0,
+                installments: Number(checkoutData.installments) || 1 // Envia para o backend
             };
 
             await api.post('/sales', payload);
@@ -142,6 +145,9 @@ export default function Sales() {
     const cartTotal = cart.reduce((acc, item) => acc + item.subtotal, 0);
     const finalTotal = Math.max(0, cartTotal - (Number(checkoutData.discount) || 0));
     const change = Math.max(0, (Number(checkoutData.amount_paid) || 0) - finalTotal);
+
+    // Helper para saber se mostra parcelas
+    const showInstallments = ['credit', 'debit'].includes(checkoutData.payment_method);
 
     return (
         <DashboardLayout>
@@ -246,7 +252,7 @@ export default function Sales() {
                             </div>
                         </div>
 
-                        {/* Inputs de Valores */}
+                        {/* Inputs de Valores e Parcelas */}
                         <div className={styles.inputsRow}>
                             <div>
                                 <label>Desconto (R$)</label>
@@ -257,19 +263,38 @@ export default function Sales() {
                                     placeholder="0.00"
                                 />
                             </div>
-                            <div>
-                                <label>Valor Recebido (R$)</label>
-                                <input 
-                                    type="number" className={styles.input} step="0.01" 
-                                    value={checkoutData.amount_paid} 
-                                    onChange={e => setCheckoutData({...checkoutData, amount_paid: e.target.value})} 
-                                    placeholder="0.00"
-                                />
-                            </div>
+
+                            {/* Se for dinheiro/pix, mostra valor recebido. Se for cartão, mostra parcelas. */}
+                            {!showInstallments ? (
+                                <div>
+                                    <label>Valor Recebido (R$)</label>
+                                    <input 
+                                        type="number" className={styles.input} step="0.01" 
+                                        value={checkoutData.amount_paid} 
+                                        onChange={e => setCheckoutData({...checkoutData, amount_paid: e.target.value})} 
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            ) : (
+                                <div>
+                                    <label>Parcelas</label>
+                                    <select 
+                                        className={styles.input} 
+                                        value={checkoutData.installments} 
+                                        onChange={e => setCheckoutData({...checkoutData, installments: e.target.value})}
+                                    >
+                                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(num => (
+                                            <option key={num} value={num}>
+                                                {num}x de R$ {(finalTotal / num).toFixed(2)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Troco */}
-                        {checkoutData.payment_method === 'money' && (
+                        {/* Troco (Só aparece se for dinheiro e tiver troco) */}
+                        {!showInstallments && checkoutData.payment_method === 'money' && (
                             <div className={styles.changeBox}>
                                 <span>Troco Estimado:</span>
                                 <strong style={{color: change > 0 ? '#10b981' : '#6b7280'}}>R$ {change.toFixed(2)}</strong>

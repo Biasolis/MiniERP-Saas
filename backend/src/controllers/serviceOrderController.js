@@ -38,39 +38,60 @@ const listOrders = async (req, res) => {
 const createOrder = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { client_id, equipment, description, priority, technician_id } = req.body;
+        const { client_id, equipment, description, priority, technician_id, customValues } = req.body;
 
         if (!client_id || !equipment) {
             return res.status(400).json({ message: 'Cliente e Equipamento são obrigatórios.' });
         }
 
+        await query('BEGIN');
+
+        // Busca nome do cliente para histórico
         const clientRes = await query('SELECT name FROM clients WHERE id = $1', [client_id]);
         const clientName = clientRes.rows[0]?.name || 'Cliente';
 
+        // 1. Cria a OS
         const result = await query(
             `INSERT INTO service_orders 
             (tenant_id, client_id, client_name, equipment, description, priority, technician_id, status, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', NOW()) 
-            RETURNING *`,
+            RETURNING id`,
             [tenantId, client_id, clientName, equipment, description, priority || 'normal', technician_id || null]
         );
+        const osId = result.rows[0].id;
 
-        return res.status(201).json(result.rows[0]);
+        // 2. Salva Campos Personalizados (se houver)
+        if (customValues && typeof customValues === 'object') {
+            for (const [fieldId, value] of Object.entries(customValues)) {
+                if (value) {
+                    await query(
+                        `INSERT INTO custom_field_values (tenant_id, field_definition_id, entity_id, entity_type, value)
+                         VALUES ($1, $2, $3, 'service_order', $4)`,
+                        [tenantId, fieldId, osId, value]
+                    );
+                }
+            }
+        }
+
+        await query('COMMIT');
+        return res.status(201).json({ id: osId, message: 'OS criada com sucesso.' });
+
     } catch (error) {
+        await query('ROLLBACK');
         console.error(error);
         return res.status(500).json({ message: 'Erro ao criar OS.' });
     }
 };
 
-// --- DETALHES DA OS (Atualizado para frontend v2) ---
+// --- DETALHES DA OS (Completo) ---
 const getOrderDetails = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const { id } = req.params;
 
-        // 1. Busca Dados da OS
+        // 1. Busca Dados da OS + Dados Completos do Cliente
         const orderRes = await query(
-            `SELECT so.*, c.email, c.phone, c.address, c.name as client_name
+            `SELECT so.*, c.email as client_email, c.phone as client_phone, c.document as client_document, c.address, c.city, c.state, c.name as client_name
              FROM service_orders so 
              LEFT JOIN clients c ON so.client_id = c.id
              WHERE so.id = $1 AND so.tenant_id = $2`,
@@ -84,7 +105,8 @@ const getOrderDetails = async (req, res) => {
             `SELECT soi.*, p.name as product_name, p.type 
              FROM service_order_items soi
              LEFT JOIN products p ON soi.product_id = p.id
-             WHERE soi.service_order_id = $1`,
+             WHERE soi.service_order_id = $1
+             ORDER BY soi.id ASC`,
             [id]
         );
 
@@ -96,15 +118,25 @@ const getOrderDetails = async (req, res) => {
             FROM custom_field_definitions d
             LEFT JOIN custom_field_values v ON d.id = v.field_definition_id AND v.entity_id = $1
             WHERE d.tenant_id = $2 AND d.module = 'service_order' AND d.active = true
+            ORDER BY d.id ASC
         `, [id, tenantId]);
 
-        // Retorna formato esperado pelo seu JSX: { os, items, custom_fields }
+        // 4. Busca Dados da Empresa (Para impressão)
+        const tenantRes = await query(
+            `SELECT name, document, phone, email_contact, address, footer_message 
+             FROM tenants WHERE id = $1`,
+            [tenantId]
+        );
+
         return res.json({ 
             os: orderRes.rows[0], 
             items: itemsRes.rows,
-            custom_fields: customFieldsRes.rows 
+            custom_fields: customFieldsRes.rows,
+            company: tenantRes.rows[0] 
         });
+
     } catch (error) {
+        console.error(error);
         return res.status(500).json({ message: 'Erro ao buscar detalhes.' });
     }
 };
@@ -155,53 +187,70 @@ const updateOrder = async (req, res) => {
     }
 };
 
-// --- ADICIONAR ITEM ---
+// --- ADICIONAR ITEM (Produto ou Serviço) ---
 const addItem = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const { id } = req.params; 
-        const { product_id, quantity, unit_price, description } = req.body; // Aceita descrição livre
+        const { product_id, quantity, unit_price, description } = req.body;
 
         await query('BEGIN');
 
-        // Validações básicas...
+        // Validações
         const osCheck = await query('SELECT status FROM service_orders WHERE id=$1', [id]);
-        if (osCheck.rows[0].status === 'completed') return res.status(400).json({message: 'OS fechada.'});
+        if (osCheck.rows.length === 0) return res.status(404).json({ message: 'OS inexistente.' });
+        if (osCheck.rows[0].status === 'completed' || osCheck.rows[0].status === 'cancelled') {
+            await query('ROLLBACK');
+            return res.status(400).json({ message: 'Não é possível alterar uma OS fechada.' });
+        }
 
         let prodName = description;
         let prodType = 'service';
 
-        // Se tiver ID de produto, valida estoque e pega nome oficial
+        // Se tiver ID de produto, valida estoque
         if (product_id) {
-            const prodRes = await query('SELECT * FROM products WHERE id=$1', [product_id]);
+            const prodRes = await query('SELECT * FROM products WHERE id=$1 AND tenant_id=$2', [product_id, tenantId]);
+            if (prodRes.rows.length === 0) {
+                await query('ROLLBACK');
+                return res.status(404).json({ message: 'Produto não encontrado.' });
+            }
+            
             const product = prodRes.rows[0];
-            prodName = product.name;
+            prodName = product.name; // Usa nome oficial
             prodType = product.type;
 
             if (product.type === 'product') {
-                if (product.stock < quantity) {
+                if (Number(product.stock) < Number(quantity)) {
                     await query('ROLLBACK');
-                    return res.status(400).json({ message: 'Estoque insuficiente.' });
+                    return res.status(400).json({ message: `Estoque insuficiente. Disponível: ${product.stock}` });
                 }
                 // Baixa Estoque
                 await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [quantity, product_id]);
-                await query(`INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by) VALUES ($1, $2, 'out', $3, 'sale', $4, $5)`, [tenantId, product_id, quantity, `OS #${id}`, req.user.id]);
+                // Log Movimentação
+                await query(
+                    `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
+                     VALUES ($1, $2, 'out', $3, 'sale', $4, $5)`,
+                    [tenantId, product_id, quantity, `OS #${id}`, req.user.id]
+                );
             }
         }
 
         const subtotal = Number(quantity) * Number(unit_price);
+        
         await query(
             `INSERT INTO service_order_items (tenant_id, service_order_id, product_id, description, quantity, unit_price, subtotal)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [tenantId, id, product_id || null, prodName, quantity, unit_price, subtotal]
         );
 
-        await recalculateOSTotals(id, tenantId);
+        await recalculateOSTotals(id);
+        
         await query('COMMIT');
         return res.json({ message: 'Item adicionado.' });
 
     } catch (error) {
         await query('ROLLBACK');
+        console.error(error);
         return res.status(500).json({ message: 'Erro ao adicionar item.' });
     }
 };
@@ -213,62 +262,154 @@ const removeItem = async (req, res) => {
         const { id, itemId } = req.params;
 
         await query('BEGIN');
-        const itemRes = await query(`SELECT soi.*, p.type FROM service_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.id=$1`, [itemId]);
+
+        const itemRes = await query(
+            `SELECT soi.*, p.type 
+             FROM service_order_items soi 
+             LEFT JOIN products p ON soi.product_id = p.id 
+             WHERE soi.id=$1 AND soi.service_order_id=$2`, 
+            [itemId, id]
+        );
+
+        if (itemRes.rows.length === 0) {
+            await query('ROLLBACK');
+            return res.status(404).json({ message: 'Item não encontrado.' });
+        }
         const item = itemRes.rows[0];
 
-        // Estorno Estoque
+        // Estorno Estoque (se for produto)
         if (item.product_id && item.type === 'product') {
             await query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
-            await query(`INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by) VALUES ($1, $2, 'in', $3, 'adjustment', $4, $5)`, [tenantId, item.product_id, item.quantity, `Estorno OS #${id}`, req.user.id]);
+            await query(
+                `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
+                 VALUES ($1, $2, 'in', $3, 'adjustment', $4, $5)`,
+                [tenantId, item.product_id, item.quantity, `Estorno OS #${id}`, req.user.id]
+            );
         }
 
         await query('DELETE FROM service_order_items WHERE id=$1', [itemId]);
-        await recalculateOSTotals(id, tenantId);
+        await recalculateOSTotals(id);
+        
         await query('COMMIT');
         return res.json({ message: 'Item removido.' });
+
     } catch (error) {
         await query('ROLLBACK');
-        return res.status(500).json({ message: 'Erro ao remover.' });
+        return res.status(500).json({ message: 'Erro ao remover item.' });
     }
 };
 
-// --- ATUALIZAR STATUS ---
+// --- ATUALIZAR STATUS E FINANCEIRO (COM PARCELAMENTO) ---
 const updateStatus = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, payment_method, installments } = req.body;
 
         await query('BEGIN');
-        const osRes = await query('SELECT * FROM service_orders WHERE id=$1', [id]);
+        
+        const osRes = await query('SELECT * FROM service_orders WHERE id=$1 AND tenant_id=$2', [id, tenantId]);
+        if (osRes.rows.length === 0) return res.status(404).json({ message: 'OS não encontrada.' });
         const os = osRes.rows[0];
 
-        // Gera Financeiro se concluir
+        // Se estiver CONCLUINDO e ainda não tiver transação, gera o financeiro
         if (status === 'completed' && os.status !== 'completed' && !os.transaction_id) {
             const total = Number(os.total_amount) - Number(os.discount || 0);
+            
             if (total > 0) {
-                const transRes = await query(
-                    `INSERT INTO transactions (tenant_id, description, amount, type, status, date, client_id, created_by)
-                     VALUES ($1, $2, $3, 'income', 'pending', NOW(), $4, $5) RETURNING id`,
-                    [tenantId, `Receita OS #${id} - ${os.client_name}`, total, os.client_id, req.user.id]
-                );
-                await query('UPDATE service_orders SET transaction_id = $1 WHERE id = $2', [transRes.rows[0].id, id]);
+                const clientRes = await query('SELECT name FROM clients WHERE id=$1', [os.client_id]);
+                const clientName = clientRes.rows[0]?.name || 'Cliente';
+
+                // Lógica de Parcelas
+                const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
+                const installmentValue = Math.floor((total / numInstallments) * 100) / 100;
+                const remainder = total - (installmentValue * numInstallments);
+                
+                const methodMap = { 'money': 'Dinheiro', 'credit': 'Crédito', 'debit': 'Débito', 'pix': 'PIX' };
+                const methodLabel = methodMap[payment_method] || payment_method || 'Avulso';
+
+                let firstTransactionId = null;
+
+                for (let i = 0; i < numInstallments; i++) {
+                    const amount = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
+                    const dueDate = new Date();
+                    dueDate.setDate(dueDate.getDate() + (30 * i)); // +30 dias para cada parcela
+
+                    const desc = numInstallments > 1 
+                        ? `OS #${id} (${methodLabel}) - ${i+1}/${numInstallments}` 
+                        : `OS #${id} (${methodLabel})`;
+
+                    // Status da Transação Financeira:
+                    // Se for 1x, assume pago (completed). Se for parcelado, assume pendente (pending).
+                    const transStatus = numInstallments === 1 ? 'completed' : 'pending';
+
+                    const transRes = await query(
+                        `INSERT INTO transactions (
+                            tenant_id, description, amount, type, status, date, client_id, created_by, installment_index, installments_total
+                        ) VALUES ($1, $2, $3, 'income', $4, $5, $6, $7, $8, $9) RETURNING id`,
+                        [
+                            tenantId, desc, amount, transStatus, dueDate, os.client_id, req.user.id, i + 1, numInstallments
+                        ]
+                    );
+
+                    // Salva o ID da primeira transação para vincular na OS
+                    if (i === 0) firstTransactionId = transRes.rows[0].id;
+                }
+                
+                if (firstTransactionId) {
+                    await query('UPDATE service_orders SET transaction_id = $1 WHERE id = $2', [firstTransactionId, id]);
+                }
             }
         }
 
         await query('UPDATE service_orders SET status = $1 WHERE id = $2', [status, id]);
+        
         await query('COMMIT');
-        return res.json({ message: 'Status atualizado.' });
+        return res.json({ message: `Status atualizado para ${status}.` });
+
     } catch (error) {
         await query('ROLLBACK');
-        return res.status(500).json({ message: 'Erro ao atualizar.' });
+        console.error(error);
+        return res.status(500).json({ message: 'Erro ao atualizar status.' });
     }
 };
 
-async function recalculateOSTotals(orderId, tenantId) {
-    const res = await query(`SELECT SUM(subtotal) as total FROM service_order_items WHERE service_order_id = $1`, [orderId]);
-    const total = res.rows[0].total || 0;
-    await query(`UPDATE service_orders SET total_amount = $1 WHERE id = $2`, [total, orderId]);
+// --- HELPER INTERNO ---
+async function recalculateOSTotals(orderId) {
+    // Calcula Peças
+    const prodSum = await query(
+        `SELECT COALESCE(SUM(subtotal), 0) as total FROM service_order_items soi
+         LEFT JOIN products p ON soi.product_id = p.id
+         WHERE soi.service_order_id = $1 AND (p.type = 'product' OR p.type IS NULL)`, // Assume produto se type for null (legado)
+        [orderId]
+    );
+    
+    // Calcula Serviços
+    const servSum = await query(
+        `SELECT COALESCE(SUM(subtotal), 0) as total FROM service_order_items soi
+         LEFT JOIN products p ON soi.product_id = p.id
+         WHERE soi.service_order_id = $1 AND p.type = 'service'`, 
+        [orderId]
+    );
+
+    const totalParts = Number(prodSum.rows[0].total);
+    const totalServices = Number(servSum.rows[0].total);
+    const totalAmount = totalParts + totalServices;
+
+    await query(
+        `UPDATE service_orders 
+         SET total_parts = $1, total_services = $2, total_amount = $3 
+         WHERE id = $4`,
+        [totalParts, totalServices, totalAmount, orderId]
+    );
 }
 
-module.exports = { listOrders, createOrder, getOrderDetails, updateOrder, addItem, removeItem, updateStatus };
+module.exports = { 
+    listOrders, 
+    createOrder, 
+    getOrderDetails, 
+    updateOrder, 
+    addItem, 
+    removeItem, 
+    updateStatus 
+};

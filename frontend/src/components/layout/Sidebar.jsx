@@ -4,10 +4,10 @@ import styles from './Sidebar.module.css';
 import { 
   LayoutDashboard, Receipt, BarChart3, Settings as SettingsIcon, LogOut, 
   ClipboardList, Users, Repeat, Package, Shield, Bell, UserCircle, Download, 
-  Calendar as CalendarIcon, CheckSquare, Layers, ShoppingCart, PackagePlus 
+  Calendar as CalendarIcon, CheckSquare, Layers, ShoppingCart, PackagePlus,
+  Truck, FileText, Factory // <--- Importado Factory
 } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
-import { Truck } from 'lucide-react'; // Ícone sugerido
 
 export default function Sidebar() {
   const location = useLocation();
@@ -33,7 +33,6 @@ export default function Sidebar() {
 
   return (
     <aside className={styles.sidebar}>
-      {/* --- LOGO DO SISTEMA --- */}
       <div className={styles.logo} style={{ marginBottom: '2.5rem' }}>
         <div style={{
             width:'48px', height:'48px', 
@@ -54,9 +53,17 @@ export default function Sidebar() {
           <LayoutDashboard size={20} /> Visão Geral
         </Link>
         
-        {/* NOVO: Vendas / PDV */}
         <Link to="/dashboard/sales" className={`${styles.link} ${isActive('/dashboard/sales') ? styles.active : ''}`}>
           <ShoppingCart size={20} /> Vendas / PDV
+        </Link>
+
+        {/* NOVO: PCP / FÁBRICA */}
+        <Link to="/dashboard/pcp" className={`${styles.link} ${isActive('/dashboard/pcp') ? styles.active : ''}`}>
+          <Factory size={20} /> Fábrica / PCP
+        </Link>
+
+        <Link to="/dashboard/quotes" className={`${styles.link} ${isActive('/dashboard/quotes') ? styles.active : ''}`}>
+          <FileText size={20} /> Orçamentos
         </Link>
 
         <Link to="/dashboard/calendar" className={`${styles.link} ${isActive('/dashboard/calendar') ? styles.active : ''}`}>
@@ -83,13 +90,12 @@ export default function Sidebar() {
           <Package size={20} /> Produtos e Serviços
         </Link>
 
-        {/* NOVO: Entrada de Estoque */}
         <Link to="/dashboard/stock-entries" className={`${styles.link} ${isActive('/dashboard/stock-entries') ? styles.active : ''}`}>
           <PackagePlus size={20} /> Entrada de Estoque
         </Link>
 
         <Link to="/dashboard/suppliers" className={`${styles.link} ${isActive('/dashboard/suppliers') ? styles.active : ''}`}>
-        <Truck size={20} /> Fornecedores
+          <Truck size={20} /> Fornecedores
         </Link>
 
         <Link to="/dashboard/clients" className={`${styles.link} ${isActive('/dashboard/clients') ? styles.active : ''}`}>

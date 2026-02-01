@@ -210,7 +210,9 @@ function LayoutA4({ data }) {
                     <tbody>
                         {items.map((item, idx) => (
                             <tr key={item.id} style={{backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9'}}>
-                                <td style={styles.td}>{item.description}</td>
+                                <td style={styles.td}>{item.description}
+                                    {item.type === 'service' && <span style={{fontSize:'0.7rem', background:'#eee', padding:'2px 5px', borderRadius:'4px', marginLeft:'8px'}}>Serviço</span>}
+                                </td>
                                 <td style={{...styles.td, textAlign:'center'}}>{item.quantity}</td>
                                 <td style={{...styles.td, textAlign:'right'}}>R$ {Number(item.unit_price).toFixed(2)}</td>
                                 <td style={{...styles.td, textAlign:'right', fontWeight:'bold'}}>R$ {Number(item.subtotal).toFixed(2)}</td>

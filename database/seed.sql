@@ -197,3 +197,11 @@ VALUES
     NOW() + INTERVAL '10 days',
     'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22'
 );
+
+UPDATE tenants 
+SET 
+    document = '12.345.678/0001-99',
+    phone = '(11) 99999-8888',
+    email_contact = 'contato@techsolutions.com',
+    address = 'Rua das Inovações, 100 - Centro, São Paulo/SP'
+WHERE slug = 'tech-solutions';

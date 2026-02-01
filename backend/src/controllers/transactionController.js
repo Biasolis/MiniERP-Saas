@@ -8,58 +8,57 @@ const auditService = require('../services/auditService');
 const listTransactions = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { page = 1, limit = 20, type, status, startDate, endDate } = req.query;
+        // Aceita tanto startDate (legado) quanto start_date (novo front)
+        const { page = 1, limit = 50, type, status, startDate, endDate, start_date, end_date } = req.query;
         const offset = (page - 1) * limit;
 
-        // Query principal com JOINS para trazer nomes de Categoria e Cliente
-        // Inclui 'attachment_path' para mostrar ícone de anexo no frontend
+        // Normaliza datas
+        const finalStart = start_date || startDate;
+        const finalEnd = end_date || endDate;
+
         let sql = `
             SELECT t.id, t.description, t.amount, t.type, t.cost_type, t.status, t.date, t.attachment_path,
-                   c.name as category_name, cl.name as client_name
+                   c.name as category_name, cl.name as client_name, s.name as supplier_name,
+                   t.installment_index, t.installments_total
             FROM transactions t
             LEFT JOIN categories c ON t.category_id = c.id
             LEFT JOIN clients cl ON t.client_id = cl.id
+            LEFT JOIN suppliers s ON t.supplier_id = s.id
             WHERE t.tenant_id = $1
         `;
         const params = [tenantId];
         let paramIndex = 2;
 
-        // Filtros Dinâmicos
-        if (type) {
+        if (type && type !== 'all') {
             sql += ` AND t.type = $${paramIndex}`;
             params.push(type);
             paramIndex++;
         }
 
-        if (status) {
+        if (status && status !== 'all') {
             sql += ` AND t.status = $${paramIndex}`;
             params.push(status);
             paramIndex++;
         }
 
-        if (startDate && endDate) {
+        if (finalStart && finalEnd) {
             sql += ` AND t.date BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
-            params.push(startDate, endDate);
+            params.push(finalStart, finalEnd);
             paramIndex += 2;
         }
 
-        // Ordenação e Paginação
-        sql += ` ORDER BY t.date DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        sql += ` ORDER BY t.date DESC, t.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(limit, offset);
 
         const result = await query(sql, params);
         
-        // Contagem para paginação
-        const countResult = await query(`SELECT COUNT(*) FROM transactions WHERE tenant_id = $1`, [tenantId]);
+        // Contagem para paginação (se necessário)
+        // const countResult = await query(`SELECT COUNT(*) FROM transactions WHERE tenant_id = $1`, [tenantId]);
 
-        return res.json({
-            data: result.rows,
-            pagination: {
-                total: parseInt(countResult.rows[0].count),
-                page: parseInt(page),
-                limit: parseInt(limit)
-            }
-        });
+        // Retorna array direto se o front esperar array, ou objeto se esperar paginação.
+        // O front novo espera array direto (res.data), o antigo paginação.
+        // Vou retornar array direto pois o novo front Transaction.jsx faz map direto.
+        return res.json(result.rows);
 
     } catch (error) {
         console.error('Erro ao listar transações:', error);
@@ -68,7 +67,46 @@ const listTransactions = async (req, res) => {
 };
 
 // ==========================================
-// 2. CRIAR NOVA TRANSAÇÃO
+// 2. RESUMO FINANCEIRO (NOVO - Para tela de Transações)
+// ==========================================
+const getSummary = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const { start_date, end_date } = req.query;
+
+        let dateFilter = '';
+        const params = [tenantId];
+
+        if (start_date && end_date) {
+            dateFilter = `AND date BETWEEN $2 AND $3`;
+            params.push(start_date, end_date);
+        }
+
+        const sql = `
+            SELECT 
+                COALESCE(SUM(CASE WHEN type = 'income' AND status = 'completed' THEN amount ELSE 0 END), 0) as income_received,
+                COALESCE(SUM(CASE WHEN type = 'income' AND status = 'pending' THEN amount ELSE 0 END), 0) as income_pending,
+                COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'completed' THEN amount ELSE 0 END), 0) as expense_paid,
+                COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'pending' THEN amount ELSE 0 END), 0) as expense_pending
+            FROM transactions
+            WHERE tenant_id = $1 ${dateFilter}
+        `;
+
+        const result = await query(sql, params);
+        const data = result.rows[0];
+
+        const balance = Number(data.income_received) - Number(data.expense_paid);
+        const expected_balance = (Number(data.income_received) + Number(data.income_pending)) - (Number(data.expense_paid) + Number(data.expense_pending));
+
+        return res.json({ ...data, balance, expected_balance });
+
+    } catch (error) {
+        return res.status(500).json({ message: 'Erro ao calcular resumo.' });
+    }
+};
+
+// ==========================================
+// 3. CRIAR NOVA TRANSAÇÃO (Com Parcelas e IA)
 // ==========================================
 const createTransaction = async (req, res) => {
     try {
@@ -76,56 +114,57 @@ const createTransaction = async (req, res) => {
         const userId = req.user.id;
         const { 
             description, amount, type, cost_type, date, status, 
-            use_ai_category, client_id, attachment_path 
+            use_ai_category, client_id, supplier_id, attachment_path,
+            installments, category_id 
         } = req.body;
 
         if (!description || !amount || !type || !date) {
             return res.status(400).json({ message: 'Campos obrigatórios faltando.' });
         }
 
-        // Lógica de Categorização IA
-        let categoryName = "Geral";
-        if (use_ai_category) {
-            categoryName = await geminiService.categorizeTransaction(description);
+        await query('BEGIN');
+
+        // 1. Lógica de Categoria (IA ou Manual)
+        let finalCategoryId = category_id;
+        
+        if (!finalCategoryId && use_ai_category) {
+            const categoryName = await geminiService.categorizeTransaction(description);
+            const catCheck = await query('SELECT id FROM categories WHERE tenant_id = $1 AND name = $2', [tenantId, categoryName]);
+            
+            if (catCheck.rows.length > 0) {
+                finalCategoryId = catCheck.rows[0].id;
+            } else {
+                const newCat = await query('INSERT INTO categories (tenant_id, name, type) VALUES ($1, $2, $3) RETURNING id', [tenantId, categoryName, type]);
+                finalCategoryId = newCat.rows[0].id;
+            }
         }
 
-        // Busca ou Cria Categoria
-        let categoryId = null;
-        const catCheck = await query(
-            'SELECT id FROM categories WHERE tenant_id = $1 AND name = $2', 
-            [tenantId, categoryName]
-        );
+        // 2. Lógica de Parcelamento
+        const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
+        const installmentValue = Math.floor((Number(amount) / numInstallments) * 100) / 100;
+        const remainder = Number(amount) - (installmentValue * numInstallments);
 
-        if (catCheck.rows.length > 0) {
-            categoryId = catCheck.rows[0].id;
-        } else {
-            const newCat = await query(
-                'INSERT INTO categories (tenant_id, name, type) VALUES ($1, $2, $3) RETURNING id',
-                [tenantId, categoryName, type]
+        // Loop para criar as parcelas
+        for (let i = 0; i < numInstallments; i++) {
+            const val = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
+            
+            const dueDate = new Date(date);
+            dueDate.setMonth(dueDate.getMonth() + i);
+
+            const desc = numInstallments > 1 ? `${description} (${i+1}/${numInstallments})` : description;
+            const st = status || 'pending';
+
+            await query(
+                `INSERT INTO transactions 
+                (tenant_id, category_id, client_id, supplier_id, description, amount, type, cost_type, status, date, created_by, attachment_path, installment_index, installments_total) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                [
+                    tenantId, finalCategoryId, client_id || null, supplier_id || null, 
+                    desc, val, type, cost_type || 'variable', st, dueDate, userId, 
+                    attachment_path || null, i + 1, numInstallments
+                ]
             );
-            categoryId = newCat.rows[0].id;
         }
-
-        // Insere a Transação (incluindo anexo e cliente)
-        const result = await query(
-            `INSERT INTO transactions 
-            (tenant_id, category_id, client_id, description, amount, type, cost_type, status, date, created_by, attachment_path) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
-            RETURNING *`,
-            [
-                tenantId, 
-                categoryId, 
-                client_id || null, 
-                description, 
-                amount, 
-                type, 
-                cost_type || 'variable', 
-                status || 'completed', 
-                date, 
-                userId,
-                attachment_path || null // Salva o caminho do arquivo
-            ]
-        );
 
         // --- AUDITORIA ---
         await auditService.logAction(
@@ -133,20 +172,22 @@ const createTransaction = async (req, res) => {
             userId, 
             'CREATE', 
             'TRANSACTION', 
-            result.rows[0].id, 
-            `Criou transação: ${description} (R$ ${amount})`
+            null, // ID null pois podem ser várias
+            `Criou transação: ${description} (R$ ${amount}) em ${numInstallments}x`
         );
 
-        return res.status(201).json(result.rows[0]);
+        await query('COMMIT');
+        return res.status(201).json({ message: 'Lançamento realizado.' });
 
     } catch (error) {
+        await query('ROLLBACK');
         console.error('Erro ao criar transação:', error);
         return res.status(500).json({ message: 'Erro ao salvar transação.' });
     }
 };
 
 // ==========================================
-// 3. ATUALIZAR STATUS (DAR BAIXA)
+// 4. ATUALIZAR STATUS (DAR BAIXA)
 // ==========================================
 const updateTransactionStatus = async (req, res) => {
     try {
@@ -161,7 +202,7 @@ const updateTransactionStatus = async (req, res) => {
 
         const result = await query(
             `UPDATE transactions 
-             SET status = $1 
+             SET status = $1, updated_at = NOW() 
              WHERE id = $2 AND tenant_id = $3 
              RETURNING *`,
             [status, id, tenantId]
@@ -190,7 +231,7 @@ const updateTransactionStatus = async (req, res) => {
 };
 
 // ==========================================
-// 4. DELETAR TRANSAÇÃO
+// 5. DELETAR TRANSAÇÃO
 // ==========================================
 const deleteTransaction = async (req, res) => {
     try {
@@ -198,7 +239,6 @@ const deleteTransaction = async (req, res) => {
         const userId = req.user.id;
         const { id } = req.params;
 
-        // 1. Busca dados antes de deletar para registrar no log
         const check = await query(
             'SELECT description, amount FROM transactions WHERE id=$1 AND tenant_id=$2', 
             [id, tenantId]
@@ -210,7 +250,6 @@ const deleteTransaction = async (req, res) => {
         
         const oldData = check.rows[0];
 
-        // 2. Deleta
         await query('DELETE FROM transactions WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
 
         // --- AUDITORIA ---
@@ -232,7 +271,7 @@ const deleteTransaction = async (req, res) => {
 };
 
 // ==========================================
-// 5. DASHBOARD KPI (Cards de Topo)
+// 6. DASHBOARD KPI (Mantido)
 // ==========================================
 const getDashboardSummary = async (req, res) => {
     try {
@@ -271,7 +310,7 @@ const getDashboardSummary = async (req, res) => {
 };
 
 // ==========================================
-// 6. TRANSAÇÕES RECENTES (Widget)
+// 7. TRANSAÇÕES RECENTES (Mantido)
 // ==========================================
 const getRecentTransactions = async (req, res) => {
     try {
@@ -296,7 +335,7 @@ const getRecentTransactions = async (req, res) => {
 };
 
 // ==========================================
-// 7. ESTATÍSTICAS POR CATEGORIA (Gráfico Pizza)
+// 8. ESTATÍSTICAS POR CATEGORIA (Mantido)
 // ==========================================
 const getCategoryStats = async (req, res) => {
     try {
@@ -329,7 +368,7 @@ const getCategoryStats = async (req, res) => {
 };
 
 // ==========================================
-// 8. RELATÓRIO IA (Gemini)
+// 9. RELATÓRIO IA (Mantido)
 // ==========================================
 const getAiReport = async (req, res) => {
     try {
@@ -356,7 +395,7 @@ const getAiReport = async (req, res) => {
 };
 
 // ==========================================
-// 9. DADOS PARA O GRÁFICO (Linha do Tempo)
+// 10. DADOS PARA O GRÁFICO (Mantido)
 // ==========================================
 const getChartData = async (req, res) => {
     try {
@@ -392,8 +431,10 @@ const getChartData = async (req, res) => {
 
 module.exports = {
     listTransactions,
+    getSummary, // NOVO (Para o Transactions.jsx)
     createTransaction,
     updateTransactionStatus,
+    updateStatus: updateTransactionStatus, // Alias
     deleteTransaction,
     getDashboardSummary,
     getRecentTransactions,

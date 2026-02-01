@@ -7,7 +7,7 @@ import { ToastContext } from '../../context/ToastContext';
 import styles from './ServiceOrderDetails.module.css';
 import { 
     ArrowLeft, Printer, Plus, Trash2, Check, AlertTriangle, 
-    Edit, FileText, Scroll, Play, Pause, RefreshCw 
+    Edit, FileText, Scroll, Play, Pause, RefreshCw, CreditCard 
 } from 'lucide-react';
 
 export default function ServiceOrderDetails() {
@@ -31,8 +31,12 @@ export default function ServiceOrderDetails() {
         customValues: {} 
     });
 
-    // Estado do Modal de Finalização
+    // Estado do Modal de Finalização (AGORA COM DADOS FINANCEIROS)
     const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
+    const [finishData, setFinishData] = useState({
+        payment_method: 'money',
+        installments: 1
+    });
 
     // Estado do Formulário de Novo Item
     const [newItem, setNewItem] = useState({ 
@@ -130,7 +134,7 @@ export default function ServiceOrderDetails() {
         try { await api.delete(`/service-orders/${id}/items/${itemId}`); loadData(); } catch(e) {}
     }
 
-    // --- CONTROLE DE STATUS ---
+    // --- CONTROLE DE STATUS (ATUALIZADO) ---
     const updateStatus = async (newStatus, confirmMsg) => {
         if(confirmMsg && !confirm(confirmMsg)) return;
         try {
@@ -142,12 +146,20 @@ export default function ServiceOrderDetails() {
         }
     };
 
-    const handleFinishClick = () => setIsFinishModalOpen(true);
+    const handleFinishClick = () => {
+        // Reseta dados financeiros ao abrir
+        setFinishData({ payment_method: 'money', installments: 1 });
+        setIsFinishModalOpen(true);
+    };
     
     const confirmFinish = async () => {
         try {
-            await api.patch(`/service-orders/${id}/status`, { status: 'completed' });
-            addToast({type:'success', title: `OS Finalizada com sucesso!`});
+            await api.patch(`/service-orders/${id}/status`, { 
+                status: 'completed',
+                payment_method: finishData.payment_method,
+                installments: Number(finishData.installments)
+            });
+            addToast({type:'success', title: `OS Finalizada e Financeiro gerado!`});
             setIsFinishModalOpen(false);
             loadData();
         } catch(e) {
@@ -155,7 +167,6 @@ export default function ServiceOrderDetails() {
         }
     };
 
-    // --- IMPRESSÃO ---
     const handlePrint = (mode) => {
         const url = `/print/os/${id}?mode=${mode}`;
         window.open(url, '_blank');
@@ -171,7 +182,6 @@ export default function ServiceOrderDetails() {
 
     return (
         <DashboardLayout>
-            {/* --- CABEÇALHO --- */}
             <div className={styles.header}>
                 <button onClick={() => navigate('/dashboard/service-orders')} className={styles.backBtn}>
                     <ArrowLeft size={16} /> Voltar
@@ -179,7 +189,7 @@ export default function ServiceOrderDetails() {
                 
                 <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap'}}>
                     
-                    {/* GRUPO DE IMPRESSÃO */}
+                    {/* IMPRESSÃO */}
                     <div className={styles.printGroup}>
                         <button onClick={() => handlePrint('thermal')} className={styles.btnPrint} title="Cupom 80mm">
                             <Scroll size={16} /> Cupom
@@ -191,7 +201,7 @@ export default function ServiceOrderDetails() {
 
                     <div className={styles.separator}></div>
 
-                    {/* --- BOTÕES DE STATUS PADRONIZADOS --- */}
+                    {/* --- BOTÕES DE STATUS (ADICIONADOS) --- */}
                     
                     {os.status !== 'completed' && (
                         <button onClick={openEditModal} className={styles.btnEdit}>
@@ -199,35 +209,30 @@ export default function ServiceOrderDetails() {
                         </button>
                     )}
 
-                    {/* ABERTA -> INICIAR */}
                     {os.status === 'open' && (
                         <button onClick={() => updateStatus('in_progress')} className={styles.btnStart}>
                             <Play size={16} /> Iniciar
                         </button>
                     )}
 
-                    {/* EM ANDAMENTO -> PAUSAR */}
                     {os.status === 'in_progress' && (
                         <button onClick={() => updateStatus('waiting')} className={styles.btnWait}>
                             <Pause size={16} /> Pausar
                         </button>
                     )}
 
-                    {/* AGUARDANDO -> RETOMAR */}
                     {os.status === 'waiting' && (
                         <button onClick={() => updateStatus('in_progress')} className={styles.btnStart}>
                             <Play size={16} /> Retomar
                         </button>
                     )}
 
-                    {/* FINALIZAR (Sempre disponível se não fechada) */}
                     {os.status !== 'completed' && (
                         <button onClick={handleFinishClick} className={styles.btnFinish}>
                             <Check size={16} /> Finalizar
                         </button>
                     )}
                     
-                    {/* REABRIR (Apenas se concluída) */}
                     {os.status === 'completed' && (
                         <button onClick={() => updateStatus('open', 'Deseja reabrir esta OS? O estoque será estornado.')} className={styles.btnReopen}>
                             <RefreshCw size={16} /> Reabrir
@@ -238,7 +243,7 @@ export default function ServiceOrderDetails() {
 
             <div className={styles.gridContainer}>
                 
-                {/* --- COLUNA ESQUERDA: DADOS DA OS --- */}
+                {/* --- COLUNA ESQUERDA --- */}
                 <div className={styles.leftCol}>
                     <div className={styles.card}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
@@ -276,14 +281,12 @@ export default function ServiceOrderDetails() {
                         )}
 
                         <div className={styles.divider}></div>
-                        
                         <div>
                             <span className={styles.label}>Descrição:</span>
                             <p className={styles.descriptionBox}>{os.description || 'Sem descrição.'}</p>
                         </div>
                     </div>
 
-                    {/* --- FORM ADICIONAR ITEM --- */}
                     {os.status !== 'completed' && (
                         <div className={styles.card}>
                             <h4>Adicionar Item / Serviço</h4>
@@ -307,7 +310,7 @@ export default function ServiceOrderDetails() {
                     )}
                 </div>
 
-                {/* --- COLUNA DIREITA: ITENS --- */}
+                {/* --- COLUNA DIREITA --- */}
                 <div className={styles.rightCol}>
                     <div className={styles.card}>
                         <h3>Itens e Serviços</h3>
@@ -333,7 +336,7 @@ export default function ServiceOrderDetails() {
                 </div>
             </div>
 
-            {/* --- MODAL DE EDIÇÃO --- */}
+            {/* MODAL EDIÇÃO */}
             <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Editar Ordem de Serviço">
                 <form onSubmit={handleSaveEdit}>
                     <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
@@ -367,7 +370,7 @@ export default function ServiceOrderDetails() {
                         </div>
 
                         <div>
-                            <label className={styles.inputLabel}>Descrição / Problema</label>
+                            <label className={styles.inputLabel}>Descrição</label>
                             <textarea className={styles.input} style={{minHeight:'80px'}} value={editData.description} onChange={e => handleEditChange('description', e.target.value)} />
                         </div>
 
@@ -376,16 +379,34 @@ export default function ServiceOrderDetails() {
                 </form>
             </Modal>
 
-            {/* --- MODAL DE FINALIZAÇÃO --- */}
-            <Modal isOpen={isFinishModalOpen} onClose={() => setIsFinishModalOpen(false)} title="Finalizar Ordem de Serviço">
-                <div style={{textAlign:'center', padding:'10px'}}>
-                    <div style={{background:'#d1fae5', color:'#065f46', padding:'15px', borderRadius:'50%', width:'60px', height:'60px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 15px'}}>
-                        <Check size={32} />
-                    </div>
-                    <h3 style={{marginBottom:'10px', color:'#1f2937'}}>Tem certeza que deseja finalizar?</h3>
-                    <p style={{color:'#6b7280', marginBottom:'20px', lineHeight:'1.5'}}>
-                        Ao confirmar, o estoque dos produtos será baixado e uma receita no valor de <strong>R$ {Number(os.total_amount).toFixed(2)}</strong> será lançada no financeiro.
+            {/* MODAL FINALIZAÇÃO (ATUALIZADO COM FINANCEIRO) */}
+            <Modal isOpen={isFinishModalOpen} onClose={() => setIsFinishModalOpen(false)} title="Finalizar e Gerar Financeiro">
+                <div style={{padding:'10px'}}>
+                    <p style={{marginBottom:'20px', color:'#666'}}>
+                        Total da OS: <strong>R$ {Number(os.total_amount).toFixed(2)}</strong>. 
+                        Confirme os dados para lançar a receita:
                     </p>
+                    
+                    <div style={{marginBottom:'15px'}}>
+                        <label className={styles.inputLabel}>Forma de Pagamento</label>
+                        <select className={styles.input} value={finishData.payment_method} onChange={e => setFinishData({...finishData, payment_method: e.target.value})}>
+                            <option value="money">Dinheiro</option>
+                            <option value="pix">PIX</option>
+                            <option value="credit">Cartão de Crédito</option>
+                            <option value="debit">Cartão de Débito</option>
+                        </select>
+                    </div>
+
+                    <div style={{marginBottom:'20px'}}>
+                        <label className={styles.inputLabel}>Parcelas (1x = À Vista)</label>
+                        <input 
+                            type="number" min="1" max="12" 
+                            className={styles.input} 
+                            value={finishData.installments} 
+                            onChange={e => setFinishData({...finishData, installments: e.target.value})} 
+                        />
+                    </div>
+
                     <div style={{display:'flex', gap:'10px', justifyContent:'center'}}>
                         <button 
                             onClick={() => setIsFinishModalOpen(false)} 
@@ -395,7 +416,8 @@ export default function ServiceOrderDetails() {
                         </button>
                         <button 
                             onClick={confirmFinish} 
-                            style={{background:'#059669', border:'none', padding:'10px 20px', borderRadius:'6px', cursor:'pointer', fontWeight:'600', color:'white', display:'flex', alignItems:'center', gap:'5px'}}
+                            className={styles.btnFinish}
+                            style={{padding:'10px 20px', display:'flex', alignItems:'center', gap:'5px'}}
                         >
                             <Check size={18} /> Confirmar
                         </button>
