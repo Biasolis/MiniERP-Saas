@@ -24,7 +24,7 @@ export default function PrintOS() {
 }
 
 // ==========================================
-// LAYOUT 1: TÉRMICO (CUPOM 80mm)
+// LAYOUT 1: TÉRMICO (CUPOM 80mm) - MANTIDO
 // ==========================================
 function LayoutThermal({ data }) {
     const { os, items, company, custom_fields } = data;
@@ -35,7 +35,8 @@ function LayoutThermal({ data }) {
         row: { display: 'flex', justifyContent: 'space-between' },
         divider: { borderBottom: '1px dashed #000', margin: '5px 0' },
         bold: { fontWeight: 'bold' },
-        center: { textAlign: 'center' }
+        center: { textAlign: 'center' },
+        sectionTitle: { fontWeight: 'bold', marginTop: '5px', textDecoration: 'underline' }
     };
 
     return (
@@ -82,6 +83,21 @@ function LayoutThermal({ data }) {
                 <span>TOTAL:</span><span>R$ {Number(os.total_amount).toFixed(2)}</span>
             </div>
 
+            {/* NOVOS CAMPOS: OBSERVAÇÃO E GARANTIA */}
+            {(company?.os_observation_message) && (
+                <div style={{marginTop:'10px'}}>
+                    <div style={styles.sectionTitle}>OBSERVAÇÕES:</div>
+                    <div style={{fontSize:'10px', whiteSpace:'pre-wrap'}}>{company.os_observation_message}</div>
+                </div>
+            )}
+
+            {(company?.os_warranty_terms) && (
+                <div style={{marginTop:'5px'}}>
+                    <div style={styles.sectionTitle}>GARANTIA:</div>
+                    <div style={{fontSize:'10px', whiteSpace:'pre-wrap'}}>{company.os_warranty_terms}</div>
+                </div>
+            )}
+
             <div style={{marginTop:'15px', ...styles.center, fontSize:'10px'}}>
                 {company?.footer_message || 'Obrigado pela preferência!'}
             </div>
@@ -92,30 +108,52 @@ function LayoutThermal({ data }) {
 }
 
 // ==========================================
-// LAYOUT 2: A4 / A5 (OFICIAL)
+// LAYOUT 2: A4 / A5 (COMPACTADO)
 // ==========================================
 function LayoutA4({ data }) {
     const { os, items, company, custom_fields } = data;
 
-    // CSS Inline para garantir impressão perfeita sem depender de arquivos externos
+    // CSS Inline Ajustado para Caber em 1 Página
     const styles = {
-        page: { fontFamily: 'Helvetica, Arial, sans-serif', width: '100%', maxWidth: '210mm', margin: '0 auto', color: '#111', lineHeight: '1.4' },
-        header: { display: 'flex', justifyContent: 'space-between', marginBottom: '20px', paddingBottom: '10px', borderBottom: '2px solid #333' },
+        page: { fontFamily: 'Helvetica, Arial, sans-serif', width: '100%', maxWidth: '210mm', margin: '0 auto', color: '#111', lineHeight: '1.3' },
+        
+        // Header Compacto
+        header: { display: 'flex', justifyContent: 'space-between', marginBottom: '10px', paddingBottom: '8px', borderBottom: '2px solid #333' },
         companyInfo: { flex: 1 },
         osInfo: { textAlign: 'right' },
-        h1: { margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#000' },
-        h2: { margin: '0 0 5px 0', fontSize: '16px', fontWeight: 'bold', backgroundColor: '#eee', padding: '5px' },
-        section: { marginBottom: '15px' },
-        grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
-        label: { fontWeight: 'bold', fontSize: '12px', color: '#555', textTransform: 'uppercase' },
-        value: { fontSize: '14px', borderBottom: '1px solid #ddd', paddingBottom: '2px', display:'block', minHeight:'18px' },
-        table: { width: '100%', borderCollapse: 'collapse', marginTop: '10px' },
-        th: { textAlign: 'left', borderBottom: '2px solid #000', padding: '8px', fontSize: '12px', textTransform: 'uppercase' },
-        td: { borderBottom: '1px solid #ddd', padding: '8px', fontSize: '13px' },
-        totalRow: { display: 'flex', justifyContent: 'flex-end', marginTop: '15px', borderTop: '2px solid #000', paddingTop: '10px' },
-        footer: { marginTop: '50px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'center' },
-        signatureLine: { borderTop: '1px solid #000', marginTop: '40px', paddingTop: '5px', fontSize: '12px' },
-        legal: { marginTop: '20px', fontSize: '10px', color: '#666', textAlign: 'center', borderTop: '1px solid #eee', paddingTop: '5px' }
+        h1: { margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#000' }, // Reduzido de 24
+        
+        // Seções Compactas
+        section: { marginBottom: '10px' }, // Reduzido de 15
+        h2: { margin: '0 0 4px 0', fontSize: '13px', fontWeight: 'bold', backgroundColor: '#f0f0f0', padding: '4px 8px', borderLeft:'4px solid #333' }, // Reduzido
+        
+        grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }, // Gap reduzido
+        
+        // Textos menores
+        label: { fontWeight: 'bold', fontSize: '10px', color: '#555', textTransform: 'uppercase' },
+        value: { fontSize: '12px', borderBottom: '1px solid #eee', paddingBottom: '1px', display:'block', minHeight:'16px' },
+        
+        // Tabela Compacta
+        table: { width: '100%', borderCollapse: 'collapse', marginTop: '5px' },
+        th: { textAlign: 'left', borderBottom: '2px solid #000', padding: '4px', fontSize: '10px', textTransform: 'uppercase' },
+        td: { borderBottom: '1px solid #ddd', padding: '4px', fontSize: '11px' },
+        
+        totalRow: { display: 'flex', justifyContent: 'flex-end', marginTop: '8px', borderTop: '2px solid #000', paddingTop: '8px' },
+        
+        // Rodapé Compacto
+        footer: { marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'center' }, // Margem reduzida
+        signatureLine: { borderTop: '1px solid #000', marginTop: '20px', paddingTop: '4px', fontSize: '10px' },
+        legal: { marginTop: '10px', fontSize: '9px', color: '#666', textAlign: 'center', borderTop: '1px solid #eee', paddingTop: '4px' },
+        
+        textBox: { 
+            border: '1px solid #ddd', 
+            borderRadius: '4px',
+            padding: '6px', 
+            fontSize: '10px', 
+            backgroundColor: '#fcfcfc',
+            marginTop: '2px',
+            whiteSpace: 'pre-wrap'
+        }
     };
 
     return (
@@ -124,17 +162,16 @@ function LayoutA4({ data }) {
             <div style={styles.header}>
                 <div style={styles.companyInfo}>
                     <div style={styles.h1}>{company?.name || 'Nome da Empresa'}</div>
-                    <div style={{fontSize:'12px', marginTop:'5px'}}>
+                    <div style={{fontSize:'11px', marginTop:'4px'}}>
                         {company?.address}<br/>
-                        {company?.phone} | {company?.email_contact}<br/>
-                        {company?.document && <span>CNPJ: {company?.document}</span>}
+                        {company?.phone} | {company?.email_contact} {company?.document ? `| CNPJ: ${company.document}` : ''}
                     </div>
                 </div>
                 <div style={styles.osInfo}>
-                    <div style={{fontSize:'32px', fontWeight:'bold', color:'#333'}}>OS #{String(os.id).padStart(6,'0')}</div>
-                    <div style={{fontSize:'12px'}}>Data: {new Date(os.created_at).toLocaleDateString('pt-BR')}</div>
-                    <div style={{fontSize:'12px'}}>Hora: {new Date(os.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</div>
-                    <div style={{marginTop:'5px', padding:'4px 8px', background:'#eee', borderRadius:'4px', display:'inline-block', fontWeight:'bold', fontSize:'12px', textTransform:'uppercase'}}>
+                    <div style={{fontSize:'24px', fontWeight:'bold', color:'#333'}}>OS #{String(os.id).padStart(6,'0')}</div>
+                    <div style={{fontSize:'11px'}}>Data: {new Date(os.created_at).toLocaleDateString('pt-BR')}</div>
+                    <div style={{fontSize:'11px'}}>Hora: {new Date(os.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</div>
+                    <div style={{marginTop:'4px', padding:'2px 6px', background:'#eee', borderRadius:'4px', display:'inline-block', fontWeight:'bold', fontSize:'10px', textTransform:'uppercase'}}>
                         Status: {os.status === 'open' ? 'Aberta' : os.status === 'completed' ? 'Finalizada' : os.status}
                     </div>
                 </div>
@@ -157,7 +194,7 @@ function LayoutA4({ data }) {
                         <span style={styles.value}>{os.client_email || '-'}</span>
                     </div>
                     <div>
-                        <span style={styles.label}>Documento (CPF/CNPJ):</span>
+                        <span style={styles.label}>Documento:</span>
                         <span style={styles.value}>{os.client_document || '-'}</span>
                     </div>
                     <div style={{gridColumn: 'span 2'}}>
@@ -178,7 +215,6 @@ function LayoutA4({ data }) {
                         <span style={styles.value}>{os.equipment}</span>
                     </div>
                     
-                    {/* Campos Personalizados */}
                     {custom_fields && custom_fields.map(f => (
                         <div key={f.id}>
                             <span style={styles.label}>{f.label}:</span>
@@ -186,9 +222,9 @@ function LayoutA4({ data }) {
                         </div>
                     ))}
 
-                    <div style={{gridColumn: 'span 2', marginTop:'5px'}}>
+                    <div style={{gridColumn: 'span 2', marginTop:'4px'}}>
                         <span style={styles.label}>Relato do Problema / Solicitação:</span>
-                        <div style={{...styles.value, minHeight:'40px', height:'auto', border:'1px solid #eee', padding:'5px', background:'#fbfbfb'}}>
+                        <div style={{...styles.value, minHeight:'30px', height:'auto', border:'1px solid #eee', padding:'4px', background:'#fbfbfb'}}>
                             {os.description}
                         </div>
                     </div>
@@ -202,16 +238,16 @@ function LayoutA4({ data }) {
                     <thead>
                         <tr>
                             <th style={styles.th}>Descrição</th>
-                            <th style={{...styles.th, width:'60px', textAlign:'center'}}>Qtd</th>
-                            <th style={{...styles.th, width:'100px', textAlign:'right'}}>Valor Un.</th>
-                            <th style={{...styles.th, width:'100px', textAlign:'right'}}>Subtotal</th>
+                            <th style={{...styles.th, width:'50px', textAlign:'center'}}>Qtd</th>
+                            <th style={{...styles.th, width:'90px', textAlign:'right'}}>Valor Un.</th>
+                            <th style={{...styles.th, width:'90px', textAlign:'right'}}>Subtotal</th>
                         </tr>
                     </thead>
                     <tbody>
                         {items.map((item, idx) => (
                             <tr key={item.id} style={{backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9'}}>
                                 <td style={styles.td}>{item.description}
-                                    {item.type === 'service' && <span style={{fontSize:'0.7rem', background:'#eee', padding:'2px 5px', borderRadius:'4px', marginLeft:'8px'}}>Serviço</span>}
+                                    {item.type === 'service' && <span style={{fontSize:'9px', background:'#eee', padding:'1px 4px', borderRadius:'3px', marginLeft:'6px'}}>Serviço</span>}
                                 </td>
                                 <td style={{...styles.td, textAlign:'center'}}>{item.quantity}</td>
                                 <td style={{...styles.td, textAlign:'right'}}>R$ {Number(item.unit_price).toFixed(2)}</td>
@@ -226,12 +262,32 @@ function LayoutA4({ data }) {
             {/* TOTAIS */}
             <div style={styles.totalRow}>
                 <div style={{textAlign:'right'}}>
-                    <div style={{fontSize:'14px', color:'#666'}}>Total Bruto: R$ {Number(os.total_amount).toFixed(2)}</div>
-                    {/* Se tiver desconto futuro, entra aqui */}
-                    <div style={{fontSize:'24px', fontWeight:'bold', color:'#000', marginTop:'5px'}}>
+                    <div style={{fontSize:'12px', color:'#666'}}>Total Bruto: R$ {Number(os.total_amount).toFixed(2)}</div>
+                    <div style={{fontSize:'18px', fontWeight:'bold', color:'#000', marginTop:'2px'}}>
                         TOTAL A PAGAR: R$ {Number(os.total_amount).toFixed(2)}
                     </div>
                 </div>
+            </div>
+
+            {/* NOVAS SEÇÕES: OBSERVAÇÕES E GARANTIA */}
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px', marginTop:'10px'}}>
+                {company?.os_observation_message && (
+                    <div>
+                        <div style={styles.label}>Observações:</div>
+                        <div style={styles.textBox}>
+                            {company.os_observation_message}
+                        </div>
+                    </div>
+                )}
+                
+                {company?.os_warranty_terms && (
+                    <div>
+                        <div style={styles.label}>Termos de Garantia:</div>
+                        <div style={styles.textBox}>
+                            {company.os_warranty_terms}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* ASSINATURAS */}
@@ -252,8 +308,8 @@ function LayoutA4({ data }) {
 
             <style>{`
                 @media print { 
-                    @page { size: A4; margin: 10mm; } 
-                    body { -webkit-print-color-adjust: exact; } 
+                    @page { size: A4; margin: 5mm; } 
+                    body { -webkit-print-color-adjust: exact; margin: 0; } 
                 }
             `}</style>
         </div>

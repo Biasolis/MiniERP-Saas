@@ -5,7 +5,8 @@ import {
   LayoutDashboard, Receipt, BarChart3, Settings as SettingsIcon, LogOut, 
   ClipboardList, Users, Repeat, Package, Shield, Bell, UserCircle, Download, 
   Calendar as CalendarIcon, CheckSquare, Layers, ShoppingCart, PackagePlus,
-  Truck, FileText, Factory // <--- Importado Factory
+  Truck, FileText, Factory, Monitor, 
+  History, Briefcase 
 } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
 
@@ -49,17 +50,28 @@ export default function Sidebar() {
       </div>
 
       <nav className={styles.nav}>
+        <Link to="/pos" className={styles.link} style={{background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', marginBottom:'10px'}}>
+          <Monitor size={20} color="#4ade80"/> <span style={{color:'#4ade80', fontWeight:'bold'}}>Abrir PDV / Caixa</span>
+        </Link>
+
         <Link to="/dashboard" className={`${styles.link} ${isActive('/dashboard') ? styles.active : ''}`}>
           <LayoutDashboard size={20} /> Visão Geral
         </Link>
         
-        <Link to="/dashboard/sales" className={`${styles.link} ${isActive('/dashboard/sales') ? styles.active : ''}`}>
-          <ShoppingCart size={20} /> Vendas / PDV
+        <Link to="/dashboard/pos-history" className={`${styles.link} ${isActive('/dashboard/pos-history') ? styles.active : ''}`}>
+          <History size={20} /> Histórico de Caixas
         </Link>
 
-        {/* NOVO: PCP / FÁBRICA */}
+        <Link to="/dashboard/sales" className={`${styles.link} ${isActive('/dashboard/sales') ? styles.active : ''}`}>
+          <ShoppingCart size={20} /> Gestão de Vendas
+        </Link>
+
         <Link to="/dashboard/pcp" className={`${styles.link} ${isActive('/dashboard/pcp') ? styles.active : ''}`}>
           <Factory size={20} /> Fábrica / PCP
+        </Link>
+
+        <Link to="/dashboard/hr" className={`${styles.link} ${isActive('/dashboard/hr') ? styles.active : ''}`}>
+          <Briefcase size={20} /> RH & Funcionários
         </Link>
 
         <Link to="/dashboard/quotes" className={`${styles.link} ${isActive('/dashboard/quotes') ? styles.active : ''}`}>

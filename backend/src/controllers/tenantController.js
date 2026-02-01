@@ -11,7 +11,8 @@ const getTenantSettings = async (req, res) => {
             SELECT 
                 id, name, slug, closing_day, plan_tier, max_users, active,
                 primary_color, secondary_color,
-                address, phone, document, email_contact, website, footer_message
+                address, phone, document, email_contact, website, footer_message,
+                os_observation_message, os_warranty_terms -- <--- NOVOS CAMPOS
             FROM tenants 
             WHERE id = $1
         `;
@@ -27,7 +28,12 @@ const getTenantSettings = async (req, res) => {
 const updateTenantSettings = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { name, closing_day, address, phone, document, email_contact, website, footer_message, primary_color, secondary_color } = req.body;
+        const { 
+            name, closing_day, address, phone, document, 
+            email_contact, website, footer_message, 
+            primary_color, secondary_color,
+            os_observation_message, os_warranty_terms // <--- NOVOS CAMPOS
+        } = req.body;
 
         if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
 
@@ -35,14 +41,17 @@ const updateTenantSettings = async (req, res) => {
             UPDATE tenants 
             SET name=$1, closing_day=$2, address=$3, phone=$4, document=$5, 
                 email_contact=$6, website=$7, footer_message=$8, 
-                primary_color=$9, secondary_color=$10, updated_at=NOW()
-            WHERE id=$11
+                primary_color=$9, secondary_color=$10,
+                os_observation_message=$11, os_warranty_terms=$12, -- <--- NOVOS CAMPOS
+                updated_at=NOW()
+            WHERE id=$13
             RETURNING *
         `;
         const result = await query(sql, [
             name, closing_day || 1, address, phone, document, 
             email_contact, website, footer_message, 
             primary_color || '#000000', secondary_color || '#ffffff',
+            os_observation_message || '', os_warranty_terms || '',
             tenantId
         ]);
         return res.json(result.rows[0]);
@@ -58,14 +67,13 @@ const updateTenantSettings = async (req, res) => {
 const getTeam = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        // Agora que você rodou o SQL acima, esta query funcionará
         const result = await query(
             'SELECT id, name, email, role, is_super_admin, created_at, avatar_path, active FROM users WHERE tenant_id = $1 ORDER BY created_at DESC', 
             [tenantId]
         );
         return res.json(result.rows);
     } catch (error) {
-        console.error("Erro na query de equipe:", error); // Log para ajudar no debug
+        console.error("Erro na query de equipe:", error);
         return res.status(500).json({ message: 'Erro ao carregar equipe.' });
     }
 };
@@ -89,7 +97,6 @@ const addMember = async (req, res) => {
 
         const hashedPassword = await hashPassword(password);
         
-        // Garante que active seja true na criação
         const result = await query(
             `INSERT INTO users (tenant_id, name, email, password_hash, role, active) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, name, email, role`,
             [tenantId, name, email, hashedPassword, role || 'user']

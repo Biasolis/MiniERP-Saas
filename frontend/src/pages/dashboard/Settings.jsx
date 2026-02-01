@@ -37,7 +37,6 @@ export default function Settings() {
 
     // --- EFEITOS (CARREGAMENTO) ---
     useEffect(() => {
-        // Carrega dados sempre que mudar a aba
         loadDataForTab(activeTab);
     }, [activeTab]);
 
@@ -112,7 +111,7 @@ export default function Settings() {
         try { 
             await api.post('/tenant/users', newUser); 
             setIsUserModalOpen(false); 
-            await loadUsers(); // Recarrega lista
+            await loadUsers(); 
             addToast({type:'success', title:'Criado'}); 
             setNewUser({name:'', email:'', password:'', role:'user'}); 
         } catch(e){ 
@@ -205,7 +204,24 @@ export default function Settings() {
                                         </div>
                                     </div>
                                     <div className={styles.formGroup}><label className={styles.label}>Endereço</label><input className={styles.input} value={company.address||''} onChange={e=>setCompany({...company, address:e.target.value})} /></div>
-                                    <div className={styles.formGroup}><label className={styles.label}>Rodapé Impressão</label><textarea className={styles.input} value={company.footer_message||''} onChange={e=>setCompany({...company, footer_message:e.target.value})} /></div>
+                                    
+                                    {/* NOVOS CAMPOS */}
+                                    <div style={{marginTop:'1.5rem', borderTop:'1px solid #eee', paddingTop:'1rem'}}>
+                                        <h4 style={{marginBottom:'10px'}}>Configurações de Impressão (OS)</h4>
+                                        <div className={styles.formGroup}>
+                                            <label className={styles.label}>Mensagem de Observação Padrão</label>
+                                            <textarea className={styles.input} style={{height:'80px'}} placeholder="Ex: Equipamento sujeito a análise..." value={company.os_observation_message||''} onChange={e=>setCompany({...company, os_observation_message:e.target.value})} />
+                                        </div>
+                                        <div className={styles.formGroup}>
+                                            <label className={styles.label}>Termos de Garantia</label>
+                                            <textarea className={styles.input} style={{height:'80px'}} placeholder="Ex: Garantia de 90 dias sobre mão de obra..." value={company.os_warranty_terms||''} onChange={e=>setCompany({...company, os_warranty_terms:e.target.value})} />
+                                        </div>
+                                        <div className={styles.formGroup}>
+                                            <label className={styles.label}>Rodapé Fixo</label>
+                                            <textarea className={styles.input} style={{height:'60px'}} placeholder="Ex: Obrigado pela preferência!" value={company.footer_message||''} onChange={e=>setCompany({...company, footer_message:e.target.value})} />
+                                        </div>
+                                    </div>
+
                                     <button className={styles.btnSave}><Save size={16}/> Salvar Configurações</button>
                                 </form>
                             )}

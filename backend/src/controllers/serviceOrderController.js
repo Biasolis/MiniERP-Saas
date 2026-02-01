@@ -46,11 +46,9 @@ const createOrder = async (req, res) => {
 
         await query('BEGIN');
 
-        // Busca nome do cliente para histórico
         const clientRes = await query('SELECT name FROM clients WHERE id = $1', [client_id]);
         const clientName = clientRes.rows[0]?.name || 'Cliente';
 
-        // 1. Cria a OS
         const result = await query(
             `INSERT INTO service_orders 
             (tenant_id, client_id, client_name, equipment, description, priority, technician_id, status, created_at)
@@ -60,7 +58,6 @@ const createOrder = async (req, res) => {
         );
         const osId = result.rows[0].id;
 
-        // 2. Salva Campos Personalizados (se houver)
         if (customValues && typeof customValues === 'object') {
             for (const [fieldId, value] of Object.entries(customValues)) {
                 if (value) {
@@ -121,9 +118,10 @@ const getOrderDetails = async (req, res) => {
             ORDER BY d.id ASC
         `, [id, tenantId]);
 
-        // 4. Busca Dados da Empresa (Para impressão)
+        // 4. Busca Dados da Empresa (CORRIGIDO: INCLUINDO OS NOVOS CAMPOS)
         const tenantRes = await query(
-            `SELECT name, document, phone, email_contact, address, footer_message 
+            `SELECT name, document, phone, email_contact, address, footer_message,
+                    os_observation_message, os_warranty_terms  -- <--- ADICIONADO AQUI
              FROM tenants WHERE id = $1`,
             [tenantId]
         );
@@ -141,7 +139,7 @@ const getOrderDetails = async (req, res) => {
     }
 };
 
-// --- EDITAR OS (NOVO) ---
+// --- EDITAR OS ---
 const updateOrder = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
@@ -150,7 +148,6 @@ const updateOrder = async (req, res) => {
 
         await query('BEGIN');
 
-        // Atualiza campos principais
         await query(
             `UPDATE service_orders 
              SET equipment = $1, description = $2, priority = $3 
@@ -158,10 +155,8 @@ const updateOrder = async (req, res) => {
             [equipment, description, priority, id, tenantId]
         );
 
-        // Atualiza campos personalizados
         if (customValues && typeof customValues === 'object') {
             for (const [fieldId, value] of Object.entries(customValues)) {
-                // Verifica se já existe valor
                 const check = await query(
                     `SELECT id FROM custom_field_values WHERE field_definition_id = $1 AND entity_id = $2`,
                     [fieldId, id]
@@ -187,7 +182,7 @@ const updateOrder = async (req, res) => {
     }
 };
 
-// --- ADICIONAR ITEM (Produto ou Serviço) ---
+// --- ADICIONAR ITEM ---
 const addItem = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
@@ -196,7 +191,6 @@ const addItem = async (req, res) => {
 
         await query('BEGIN');
 
-        // Validações
         const osCheck = await query('SELECT status FROM service_orders WHERE id=$1', [id]);
         if (osCheck.rows.length === 0) return res.status(404).json({ message: 'OS inexistente.' });
         if (osCheck.rows[0].status === 'completed' || osCheck.rows[0].status === 'cancelled') {
@@ -207,7 +201,6 @@ const addItem = async (req, res) => {
         let prodName = description;
         let prodType = 'service';
 
-        // Se tiver ID de produto, valida estoque
         if (product_id) {
             const prodRes = await query('SELECT * FROM products WHERE id=$1 AND tenant_id=$2', [product_id, tenantId]);
             if (prodRes.rows.length === 0) {
@@ -216,7 +209,7 @@ const addItem = async (req, res) => {
             }
             
             const product = prodRes.rows[0];
-            prodName = product.name; // Usa nome oficial
+            prodName = product.name; 
             prodType = product.type;
 
             if (product.type === 'product') {
@@ -224,9 +217,7 @@ const addItem = async (req, res) => {
                     await query('ROLLBACK');
                     return res.status(400).json({ message: `Estoque insuficiente. Disponível: ${product.stock}` });
                 }
-                // Baixa Estoque
                 await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [quantity, product_id]);
-                // Log Movimentação
                 await query(
                     `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
                      VALUES ($1, $2, 'out', $3, 'sale', $4, $5)`,
@@ -277,7 +268,6 @@ const removeItem = async (req, res) => {
         }
         const item = itemRes.rows[0];
 
-        // Estorno Estoque (se for produto)
         if (item.product_id && item.type === 'product') {
             await query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
             await query(
@@ -299,7 +289,7 @@ const removeItem = async (req, res) => {
     }
 };
 
-// --- ATUALIZAR STATUS E FINANCEIRO (COM PARCELAMENTO) ---
+// --- ATUALIZAR STATUS E FINANCEIRO ---
 const updateStatus = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
@@ -312,7 +302,6 @@ const updateStatus = async (req, res) => {
         if (osRes.rows.length === 0) return res.status(404).json({ message: 'OS não encontrada.' });
         const os = osRes.rows[0];
 
-        // Se estiver CONCLUINDO e ainda não tiver transação, gera o financeiro
         if (status === 'completed' && os.status !== 'completed' && !os.transaction_id) {
             const total = Number(os.total_amount) - Number(os.discount || 0);
             
@@ -320,7 +309,6 @@ const updateStatus = async (req, res) => {
                 const clientRes = await query('SELECT name FROM clients WHERE id=$1', [os.client_id]);
                 const clientName = clientRes.rows[0]?.name || 'Cliente';
 
-                // Lógica de Parcelas
                 const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
                 const installmentValue = Math.floor((total / numInstallments) * 100) / 100;
                 const remainder = total - (installmentValue * numInstallments);
@@ -333,14 +321,12 @@ const updateStatus = async (req, res) => {
                 for (let i = 0; i < numInstallments; i++) {
                     const amount = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
                     const dueDate = new Date();
-                    dueDate.setDate(dueDate.getDate() + (30 * i)); // +30 dias para cada parcela
+                    dueDate.setDate(dueDate.getDate() + (30 * i)); 
 
                     const desc = numInstallments > 1 
                         ? `OS #${id} (${methodLabel}) - ${i+1}/${numInstallments}` 
                         : `OS #${id} (${methodLabel})`;
 
-                    // Status da Transação Financeira:
-                    // Se for 1x, assume pago (completed). Se for parcelado, assume pendente (pending).
                     const transStatus = numInstallments === 1 ? 'completed' : 'pending';
 
                     const transRes = await query(
@@ -352,7 +338,6 @@ const updateStatus = async (req, res) => {
                         ]
                     );
 
-                    // Salva o ID da primeira transação para vincular na OS
                     if (i === 0) firstTransactionId = transRes.rows[0].id;
                 }
                 
@@ -374,17 +359,15 @@ const updateStatus = async (req, res) => {
     }
 };
 
-// --- HELPER INTERNO ---
+// --- HELPER ---
 async function recalculateOSTotals(orderId) {
-    // Calcula Peças
     const prodSum = await query(
         `SELECT COALESCE(SUM(subtotal), 0) as total FROM service_order_items soi
          LEFT JOIN products p ON soi.product_id = p.id
-         WHERE soi.service_order_id = $1 AND (p.type = 'product' OR p.type IS NULL)`, // Assume produto se type for null (legado)
+         WHERE soi.service_order_id = $1 AND (p.type = 'product' OR p.type IS NULL)`,
         [orderId]
     );
     
-    // Calcula Serviços
     const servSum = await query(
         `SELECT COALESCE(SUM(subtotal), 0) as total FROM service_order_items soi
          LEFT JOIN products p ON soi.product_id = p.id
@@ -404,6 +387,14 @@ async function recalculateOSTotals(orderId) {
     );
 }
 
+// Aliases para compatibilidade de rotas
+const listServiceOrders = listOrders;
+const createServiceOrder = createOrder;
+const getServiceOrderById = getOrderDetails; // Alias crucial para a rota /:id
+const updateServiceOrder = updateOrder;
+const updateOSStatus = updateStatus;
+const deleteServiceOrder = async (req, res) => { /* Implementar se precisar */ };
+
 module.exports = { 
     listOrders, 
     createOrder, 
@@ -411,5 +402,12 @@ module.exports = {
     updateOrder, 
     addItem, 
     removeItem, 
-    updateStatus 
+    updateStatus,
+    // Exports com nomes alternativos para garantir que as rotas antigas funcionem
+    listServiceOrders,
+    createServiceOrder,
+    getServiceOrderById,
+    updateServiceOrder,
+    updateOSStatus,
+    deleteServiceOrder
 };

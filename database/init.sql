@@ -742,3 +742,80 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES
 
 -- Criar índice para performance
 CREATE INDEX IF NOT EXISTS idx_transactions_supplier ON transactions(supplier_id);
+
+-- ==========================================
+-- MÓDULO PDV (Frente de Caixa)
+-- ==========================================
+
+-- 1. Tabela de Sessões de Caixa (Abertura/Fechamento)
+CREATE TABLE IF NOT EXISTS pos_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id), -- O operador do caixa
+    
+    opening_balance DECIMAL(10, 2) NOT NULL DEFAULT 0, -- Fundo de troco
+    closing_balance DECIMAL(10, 2), -- Valor conferido no fechamento
+    
+    status VARCHAR(20) DEFAULT 'open', -- 'open', 'closed'
+    
+    opened_at TIMESTAMP DEFAULT NOW(),
+    closed_at TIMESTAMP,
+    
+    notes TEXT -- Observações de quebra de caixa, etc.
+);
+
+-- 2. Tabela de Movimentações de Caixa (Sangria/Suprimento)
+CREATE TABLE IF NOT EXISTS pos_movements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    session_id UUID REFERENCES pos_sessions(id) ON DELETE CASCADE,
+    type VARCHAR(20) NOT NULL, -- 'supply' (suprimento), 'bleed' (sangria)
+    amount DECIMAL(10, 2) NOT NULL,
+    reason VARCHAR(255),
+    created_at TIMESTAMP DEFAULT NOW(),
+    created_by UUID REFERENCES users(id)
+);
+
+-- 3. Vincular Vendas à Sessão do Caixa
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS pos_session_id UUID REFERENCES pos_sessions(id);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_pos_sessions_tenant ON pos_sessions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_pos_sessions_status ON pos_sessions(status);
+
+-- Adiciona campos de texto padrão para OS na tabela da empresa
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS os_observation_message TEXT DEFAULT '';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS os_warranty_terms TEXT DEFAULT 'Garantia de 90 dias para mão de obra.';
+
+-- ==========================================
+-- MÓDULO RH (Recursos Humanos)
+-- ==========================================
+
+-- 1. Departamentos
+CREATE TABLE IF NOT EXISTS departments (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 2. Funcionários
+CREATE TABLE IF NOT EXISTS employees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    cpf VARCHAR(20),
+    admission_date DATE,
+    department_id INTEGER REFERENCES departments(id),
+    position VARCHAR(100), -- Cargo
+    salary DECIMAL(10, 2),
+    status VARCHAR(20) DEFAULT 'active', -- active, vacation, terminated
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_employees_tenant ON employees(tenant_id);

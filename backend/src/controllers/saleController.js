@@ -8,7 +8,8 @@ const createSale = async (req, res) => {
         const { 
             client_id, items, 
             payment_method, discount, amount_paid, notes,
-            installments // <--- NOVO CAMPO (Número de parcelas)
+            installments, // <--- NOVO CAMPO (Número de parcelas)
+            pos_session_id // <--- NOVO CAMPO (Sessão do Caixa)
         } = req.body;
 
         if (!items || items.length === 0) {
@@ -21,18 +22,20 @@ const createSale = async (req, res) => {
         const userRes = await query('SELECT commission_rate FROM users WHERE id = $1', [sellerId]);
         const sellerDefaultCommission = Number(userRes.rows[0]?.commission_rate || 0);
 
-        // 2. Cria Cabeçalho da Venda
+        // 2. Cria Cabeçalho da Venda (Incluindo pos_session_id)
         const saleRes = await query(
             `INSERT INTO sales (
-                tenant_id, seller_id, client_id, total_amount, 
+                tenant_id, seller_id, client_id, pos_session_id, total_amount, 
                 status, payment_method, discount, amount_paid, change_amount, notes
-            ) VALUES ($1, $2, $3, 0, 'completed', $4, $5, $6, $7, $8) RETURNING id`,
+            ) VALUES ($1, $2, $3, $4, 0, 'completed', $5, $6, $7, 0, $8) RETURNING id`,
             [
-                tenantId, sellerId, client_id || null, 
+                tenantId, 
+                sellerId, 
+                client_id || null, 
+                pos_session_id || null, // Vincula à sessão do caixa se existir
                 payment_method || 'cash', 
                 discount || 0, 
                 amount_paid || 0, 
-                0, 
                 notes || ''
             ]
         );
@@ -115,10 +118,9 @@ const createSale = async (req, res) => {
             const dueDate = new Date();
             dueDate.setDate(dueDate.getDate() + (30 * i)); // Regra simples de 30 dias
 
-            // Status: Se for dinheiro/pix ou cartão à vista (1x), já nasce pago. Se for prazo, nasce pendente.
-            // Aqui vamos assumir: Vendas PDV geralmente já nascem pagas ou a primeira paga.
-            // Para simplificar PDV: Tudo 'completed' pois assume-se que passou o cartão na hora.
-            // Se fosse boleto, seria 'pending'. Vamos manter 'completed' para PDV padrão por enquanto.
+            // Status: No PDV, assume-se que a primeira parcela ou venda a vista já está paga.
+            // Ajuste conforme regra de negócio: Se for crédito parcelado, entra como 'completed' (recebível gerado) ou 'pending'?
+            // Para simplificar PDV, assumimos 'completed' (venda fechada).
             const status = 'completed'; 
 
             const desc = numInstallments > 1 

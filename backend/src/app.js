@@ -25,8 +25,10 @@ const planRoutes = require('./routes/planRoutes');
 const saleRoutes = require('./routes/saleRoutes');
 const entryRoutes = require('./routes/entryRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
-const quoteRoutes = require('./routes/quoteRoutes'); // Necessário salvar o arquivo quoteRoutes.js
-const pcpRoutes = require('./routes/pcpRoutes');     // Necessário salvar o arquivo pcpRoutes.js
+const quoteRoutes = require('./routes/quoteRoutes');
+const pcpRoutes = require('./routes/pcpRoutes');
+const posRoutes = require('./routes/posRoutes');
+const hrRoutes = require('./routes/hrRoutes'); // <--- 1. IMPORTAR
 
 const { apiLimiter, authLimiter } = require('./middlewares/rateLimiter');
 const logger = require('./config/logger');
@@ -67,11 +69,13 @@ app.use('/api/plans', planRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/suppliers', supplierRoutes);
-app.use('/api/quotes', quoteRoutes); // Confirma que quoteRoutes.js existe
-app.use('/api/pcp', pcpRoutes);     // Confirma que pcpRoutes.js existe
+app.use('/api/quotes', quoteRoutes);
+app.use('/api/pcp', pcpRoutes);
+app.use('/api/pos', posRoutes);
+app.use('/api/hr', hrRoutes); // <--- 2. REGISTRAR
 
 app.get('/', (req, res) => {
-    res.json({ status: 'API Online 🚀', version: '1.9.5', mode: 'Full ERP + PCP' });
+    res.json({ status: 'API Online 🚀', version: '1.9.7', mode: 'Full ERP + HR' });
 });
 
 module.exports = app;
