@@ -7,6 +7,7 @@ import {
   Calendar as CalendarIcon, CheckSquare, Layers, ShoppingCart, PackagePlus 
 } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
+import { Truck } from 'lucide-react'; // Ícone sugerido
 
 export default function Sidebar() {
   const location = useLocation();
@@ -85,6 +86,10 @@ export default function Sidebar() {
         {/* NOVO: Entrada de Estoque */}
         <Link to="/dashboard/stock-entries" className={`${styles.link} ${isActive('/dashboard/stock-entries') ? styles.active : ''}`}>
           <PackagePlus size={20} /> Entrada de Estoque
+        </Link>
+
+        <Link to="/dashboard/suppliers" className={`${styles.link} ${isActive('/dashboard/suppliers') ? styles.active : ''}`}>
+        <Truck size={20} /> Fornecedores
         </Link>
 
         <Link to="/dashboard/clients" className={`${styles.link} ${isActive('/dashboard/clients') ? styles.active : ''}`}>

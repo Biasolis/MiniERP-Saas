@@ -525,3 +525,42 @@ CREATE TABLE IF NOT EXISTS product_entry_items (
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_entries_tenant ON product_entries(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_entry_items_entry ON product_entry_items(entry_id);
+
+-- 1. Tabela de Fornecedores
+CREATE TABLE IF NOT EXISTS suppliers (
+    id SERIAL PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    cnpj_cpf VARCHAR(20),
+    email VARCHAR(100),
+    phone VARCHAR(20),
+    address TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 2. Atualizar tabela de Entradas para vincular Fornecedor
+ALTER TABLE product_entries ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_suppliers_tenant ON suppliers(tenant_id);
+
+-- Adicionar campos de pagamento e desconto na tabela de Vendas
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'cash'; -- money, credit, debit, pix
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount DECIMAL(10,2) DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS amount_paid DECIMAL(10,2) DEFAULT 0; -- Valor pago pelo cliente
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS change_amount DECIMAL(10,2) DEFAULT 0; -- Troco
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- Adicionar campos de pagamento e desconto na tabela de Vendas
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'cash'; -- money, credit, debit, pix
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount DECIMAL(10,2) DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS amount_paid DECIMAL(10,2) DEFAULT 0; -- Valor entregue pelo cliente
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS change_amount DECIMAL(10,2) DEFAULT 0; -- Troco devolvido
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS notes TEXT; -- Observações da venda
+
+-- Vincular a OS a uma transação financeira (para controle de pagamento)
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL;
+
+-- Garantir colunas de totais
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS total_parts DECIMAL(10,2) DEFAULT 0;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS total_services DECIMAL(10,2) DEFAULT 0;

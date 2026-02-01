@@ -5,7 +5,10 @@ const createSale = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const sellerId = req.user.id;
-        const { client_id, items } = req.body; 
+        const { 
+            client_id, items, 
+            payment_method, discount, amount_paid, notes // Novos campos do Checkout
+        } = req.body;
 
         if (!items || items.length === 0) {
             return res.status(400).json({ message: 'O carrinho está vazio.' });
@@ -13,19 +16,29 @@ const createSale = async (req, res) => {
 
         await query('BEGIN');
 
-        // 1. Busca taxa padrão do vendedor
+        // 1. Busca dados do vendedor (para comissão padrão)
         const userRes = await query('SELECT commission_rate FROM users WHERE id = $1', [sellerId]);
         const sellerDefaultCommission = Number(userRes.rows[0]?.commission_rate || 0);
 
-        // 2. Cria a Venda
+        // 2. Cria a Venda (Header)
+        // Inserimos com valores iniciais, depois atualizamos o total calculado
         const saleRes = await query(
-            `INSERT INTO sales (tenant_id, seller_id, client_id, total_amount, status) 
-             VALUES ($1, $2, $3, 0, 'completed') RETURNING id`,
-            [tenantId, sellerId, client_id || null]
+            `INSERT INTO sales (
+                tenant_id, seller_id, client_id, total_amount, 
+                status, payment_method, discount, amount_paid, change_amount, notes
+            ) VALUES ($1, $2, $3, 0, 'completed', $4, $5, $6, $7, $8) RETURNING id`,
+            [
+                tenantId, sellerId, client_id || null, 
+                payment_method || 'money', 
+                discount || 0, 
+                amount_paid || 0, 
+                0, 
+                notes || ''
+            ]
         );
         const saleId = saleRes.rows[0].id;
 
-        let totalSaleAmount = 0;
+        let totalItemsAmount = 0;
         let totalCommissionAmount = 0;
 
         // 3. Processa Itens
@@ -44,18 +57,17 @@ const createSale = async (req, res) => {
 
             const product = prodRes.rows[0];
 
-            // Valida Estoque (se for produto)
+            // Valida Estoque
             if (product.type === 'product' && product.stock < qty) {
                 await query('ROLLBACK');
                 return res.status(400).json({ message: `Estoque insuficiente para: ${product.name}` });
             }
 
-            // --- LÓGICA DE COMISSÃO ---
-            // Prioridade: Taxa do Produto > Taxa do Vendedor
+            // Lógica de Comissão
             const rateToUse = product.commission_rate !== null ? Number(product.commission_rate) : sellerDefaultCommission;
             const itemCommission = subtotal * (rateToUse / 100);
 
-            // Insere Item
+            // Insere Item da Venda
             await query(
                 `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal, commission_amount)
                  VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -72,21 +84,37 @@ const createSale = async (req, res) => {
                 );
             }
 
-            totalSaleAmount += subtotal;
+            totalItemsAmount += subtotal;
             totalCommissionAmount += itemCommission;
         }
 
-        // 4. Atualiza Total
-        await query('UPDATE sales SET total_amount = $1 WHERE id = $2', [totalSaleAmount, saleId]);
+        // 4. Cálculos Finais (Total, Troco)
+        const finalTotal = totalItemsAmount - (Number(discount) || 0);
+        const change = (Number(amount_paid) || 0) - finalTotal;
 
-        // 5. Gera Receita Financeira
+        // Atualiza Venda
+        await query(
+            `UPDATE sales SET total_amount = $1, change_amount = $2 WHERE id = $3`, 
+            [finalTotal, change > 0 ? change : 0, saleId]
+        );
+
+        // 5. Gera Transação Financeira (Receita)
+        const methodMap = { 'money': 'Dinheiro', 'credit': 'Crédito', 'debit': 'Débito', 'pix': 'PIX' };
+        const methodLabel = methodMap[payment_method] || payment_method;
+
         await query(
             `INSERT INTO transactions (tenant_id, description, amount, type, status, date, client_id, created_by)
              VALUES ($1, $2, $3, 'income', 'completed', NOW(), $4, $5)`,
-            [tenantId, `Venda PDV #${saleId}`, totalSaleAmount, client_id || null, sellerId]
+            [
+                tenantId, 
+                `Venda PDV #${saleId} (${methodLabel})`, 
+                finalTotal, 
+                client_id || null, 
+                sellerId
+            ]
         );
 
-        // 6. Gera Comissão Pendente
+        // 6. Registra Comissão Pendente
         if (totalCommissionAmount > 0) {
             await query(
                 `INSERT INTO commissions (tenant_id, seller_id, sale_id, amount, status)
@@ -123,7 +151,7 @@ const getSales = async (req, res) => {
     }
 };
 
-// Obter Detalhes
+// Obter Detalhes da Venda
 const getSaleDetails = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;

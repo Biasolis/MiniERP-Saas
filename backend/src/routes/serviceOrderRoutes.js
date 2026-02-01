@@ -5,16 +5,12 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 router.use(authMiddleware);
 
-router.get('/', serviceOrderController.getServiceOrders);
-router.get('/:id', serviceOrderController.getServiceOrderDetails);
-router.post('/', serviceOrderController.createServiceOrder);
-
-// ROTA DE EDIÇÃO (NOVA)
-router.put('/:id', serviceOrderController.updateServiceOrder);
+router.get('/', serviceOrderController.listOrders);
+router.post('/', serviceOrderController.createOrder);
+router.get('/:id', serviceOrderController.getOrderDetails);
+router.put('/:id', serviceOrderController.updateOrder); // <--- NOVO: Rota de Edição
 
 router.patch('/:id/status', serviceOrderController.updateStatus);
-
-// Rotas de Itens
 router.post('/:id/items', serviceOrderController.addItem);
 router.delete('/:id/items/:itemId', serviceOrderController.removeItem);
 

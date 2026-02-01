@@ -25,6 +25,7 @@ import TasksPage from './pages/dashboard/TasksPage';
 import Transactions from './pages/dashboard/Transactions';
 import Recurring from './pages/dashboard/Recurring';
 import Reports from './pages/dashboard/Reports';
+import Suppliers from './pages/dashboard/Suppliers';
 
 // --- CRM (CLIENTES) ---
 import Clients from './pages/dashboard/Clients';
@@ -104,6 +105,7 @@ function AppRoutes() {
       <Route path="/dashboard/transactions" element={<PrivateRoute><Transactions /></PrivateRoute>} />
       <Route path="/dashboard/recurring" element={<PrivateRoute><Recurring /></PrivateRoute>} />
       <Route path="/dashboard/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
+      <Route path="/dashboard/suppliers" element={<PrivateRoute><Suppliers /></PrivateRoute>} />
 
       {/* --- ESTOQUE & VENDAS & PRODUTOS --- */}
       <Route path="/dashboard/products" element={<PrivateRoute><Products /></PrivateRoute>} />

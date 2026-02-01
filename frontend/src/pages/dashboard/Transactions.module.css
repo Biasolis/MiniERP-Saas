@@ -124,7 +124,14 @@
 
 .btnNew:hover { opacity: 0.9; }
 
-/* Botão de Ação na Tabela (Check/Uncheck) */
+/* Grupo de Ações na Tabela */
+.actionsGroup {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+/* Botão de Ação (Check/Uncheck) */
 .actionBtn {
   background: transparent;
   border: 1px solid #d1d5db;
@@ -152,7 +159,28 @@
 }
 
 .actionBtnCompleted:hover {
-  background: #fee2e2; /* Vira vermelho ao passar o mouse para indicar 'desfazer' */
+  background: #fee2e2; 
   color: #991b1b;
   border-color: #fca5a5;
+}
+
+/* Botão Excluir (Lixeira) */
+.btnDelete {
+    background: transparent;
+    border: 1px solid #fee2e2;
+    color: #ef4444;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btnDelete:hover {
+    background: #fee2e2;
+    border-color: #ef4444;
+    color: #991b1b;
 }

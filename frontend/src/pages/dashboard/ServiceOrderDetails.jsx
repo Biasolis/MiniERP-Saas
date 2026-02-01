@@ -5,7 +5,10 @@ import DashboardLayout from '../../components/layout/DashboardLayout';
 import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
 import styles from './ServiceOrderDetails.module.css';
-import { ArrowLeft, Printer, Plus, Trash2, Check, AlertTriangle, Edit, FileText, Scroll } from 'lucide-react';
+import { 
+    ArrowLeft, Printer, Plus, Trash2, Check, AlertTriangle, 
+    Edit, FileText, Scroll, Play, Pause, RefreshCw 
+} from 'lucide-react';
 
 export default function ServiceOrderDetails() {
     const { id } = useParams();
@@ -28,7 +31,7 @@ export default function ServiceOrderDetails() {
         customValues: {} 
     });
 
-    // Estado do Modal de Finalização (NOVO)
+    // Estado do Modal de Finalização
     const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
 
     // Estado do Formulário de Novo Item
@@ -60,7 +63,6 @@ export default function ServiceOrderDetails() {
     }
 
     // --- EDIÇÃO DA OS ---
-
     const openEditModal = () => {
         const currentCustomValues = {};
         customFields.forEach(field => {
@@ -103,7 +105,6 @@ export default function ServiceOrderDetails() {
     };
 
     // --- ITENS ---
-
     const handleProductChange = (prodId) => {
         const prod = products.find(p => p.id === Number(prodId));
         if (prod) {
@@ -129,14 +130,20 @@ export default function ServiceOrderDetails() {
         try { await api.delete(`/service-orders/${id}/items/${itemId}`); loadData(); } catch(e) {}
     }
 
-    // --- STATUS E FINALIZAÇÃO ---
-
-    // Abre o modal de confirmação
-    const handleFinishClick = () => {
-        setIsFinishModalOpen(true);
+    // --- CONTROLE DE STATUS ---
+    const updateStatus = async (newStatus, confirmMsg) => {
+        if(confirmMsg && !confirm(confirmMsg)) return;
+        try {
+            await api.patch(`/service-orders/${id}/status`, { status: newStatus });
+            addToast({type:'success', title: 'Status atualizado!'});
+            loadData();
+        } catch(e) {
+            addToast({type:'error', title: 'Erro ao atualizar status.'});
+        }
     };
 
-    // Executa a finalização após confirmação no modal
+    const handleFinishClick = () => setIsFinishModalOpen(true);
+    
     const confirmFinish = async () => {
         try {
             await api.patch(`/service-orders/${id}/status`, { status: 'completed' });
@@ -147,11 +154,6 @@ export default function ServiceOrderDetails() {
             addToast({type:'error', title: 'Erro ao finalizar OS.'});
         }
     };
-
-    const handleReopen = async () => {
-        if(!confirm('Reabrir esta OS?')) return;
-        try { await api.patch(`/service-orders/${id}/status`, { status: 'open' }); loadData(); } catch(e) {}
-    }
 
     // --- IMPRESSÃO ---
     const handlePrint = (mode) => {
@@ -175,35 +177,60 @@ export default function ServiceOrderDetails() {
                     <ArrowLeft size={16} /> Voltar
                 </button>
                 
-                <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap'}}>
                     
                     {/* GRUPO DE IMPRESSÃO */}
                     <div className={styles.printGroup}>
-                        <button onClick={() => handlePrint('thermal')} className={styles.btnPrint} title="Imprimir Cupom (80mm)">
+                        <button onClick={() => handlePrint('thermal')} className={styles.btnPrint} title="Cupom 80mm">
                             <Scroll size={16} /> Cupom
                         </button>
-                        <button onClick={() => handlePrint('a4')} className={styles.btnPrint} title="Imprimir Folha A4">
+                        <button onClick={() => handlePrint('a4')} className={styles.btnPrint} title="Folha A4">
                             <FileText size={16} /> A4
                         </button>
                     </div>
 
                     <div className={styles.separator}></div>
 
-                    {/* BOTÕES DE AÇÃO */}
+                    {/* --- BOTÕES DE STATUS PADRONIZADOS --- */}
+                    
                     {os.status !== 'completed' && (
-                        <>
-                            <button onClick={openEditModal} className={styles.btnEdit} title="Editar Informações">
-                                <Edit size={16} /> Editar
-                            </button>
-                            <button onClick={handleFinishClick} className={styles.btnFinish}>
-                                <Check size={16} /> Finalizar
-                            </button>
-                        </>
+                        <button onClick={openEditModal} className={styles.btnEdit}>
+                            <Edit size={16} /> Editar
+                        </button>
+                    )}
+
+                    {/* ABERTA -> INICIAR */}
+                    {os.status === 'open' && (
+                        <button onClick={() => updateStatus('in_progress')} className={styles.btnStart}>
+                            <Play size={16} /> Iniciar
+                        </button>
+                    )}
+
+                    {/* EM ANDAMENTO -> PAUSAR */}
+                    {os.status === 'in_progress' && (
+                        <button onClick={() => updateStatus('waiting')} className={styles.btnWait}>
+                            <Pause size={16} /> Pausar
+                        </button>
+                    )}
+
+                    {/* AGUARDANDO -> RETOMAR */}
+                    {os.status === 'waiting' && (
+                        <button onClick={() => updateStatus('in_progress')} className={styles.btnStart}>
+                            <Play size={16} /> Retomar
+                        </button>
+                    )}
+
+                    {/* FINALIZAR (Sempre disponível se não fechada) */}
+                    {os.status !== 'completed' && (
+                        <button onClick={handleFinishClick} className={styles.btnFinish}>
+                            <Check size={16} /> Finalizar
+                        </button>
                     )}
                     
+                    {/* REABRIR (Apenas se concluída) */}
                     {os.status === 'completed' && (
-                        <button onClick={handleReopen} className={styles.btnReopen}>
-                            <AlertTriangle size={16} /> Reabrir
+                        <button onClick={() => updateStatus('open', 'Deseja reabrir esta OS? O estoque será estornado.')} className={styles.btnReopen}>
+                            <RefreshCw size={16} /> Reabrir
                         </button>
                     )}
                 </div>
@@ -236,7 +263,7 @@ export default function ServiceOrderDetails() {
                             <span style={{textTransform:'capitalize'}}>{os.priority === 'high' ? 'Alta' : os.priority === 'low' ? 'Baixa' : 'Normal'}</span>
                         </div>
 
-                        {/* RENDERIZAÇÃO DOS CAMPOS PERSONALIZADOS */}
+                        {/* CAMPOS PERSONALIZADOS */}
                         {customFields.length > 0 && (
                             <div className={styles.customFieldsBox}>
                                 {customFields.map((field, idx) => (
@@ -315,7 +342,6 @@ export default function ServiceOrderDetails() {
                             <input className={styles.input} value={editData.equipment} onChange={e => handleEditChange('equipment', e.target.value)} required />
                         </div>
                         
-                        {/* Campos Personalizados Dinâmicos */}
                         {customFields.length > 0 && (
                             <div style={{background:'#f9fafb', padding:'10px', borderRadius:'6px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
                                 {customFields.map(field => (
@@ -350,7 +376,7 @@ export default function ServiceOrderDetails() {
                 </form>
             </Modal>
 
-            {/* --- MODAL DE FINALIZAÇÃO (NOVO) --- */}
+            {/* --- MODAL DE FINALIZAÇÃO --- */}
             <Modal isOpen={isFinishModalOpen} onClose={() => setIsFinishModalOpen(false)} title="Finalizar Ordem de Serviço">
                 <div style={{textAlign:'center', padding:'10px'}}>
                     <div style={{background:'#d1fae5', color:'#065f46', padding:'15px', borderRadius:'50%', width:'60px', height:'60px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 15px'}}>
@@ -371,7 +397,7 @@ export default function ServiceOrderDetails() {
                             onClick={confirmFinish} 
                             style={{background:'#059669', border:'none', padding:'10px 20px', borderRadius:'6px', cursor:'pointer', fontWeight:'600', color:'white', display:'flex', alignItems:'center', gap:'5px'}}
                         >
-                            <Check size={18} /> Confirmar Finalização
+                            <Check size={18} /> Confirmar
                         </button>
                     </div>
                 </div>

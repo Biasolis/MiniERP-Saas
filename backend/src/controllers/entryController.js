@@ -5,7 +5,10 @@ const createEntry = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const userId = req.user.id;
-        const { invoice_number, supplier_name, entry_date, items, invoice_url } = req.body;
+        const { 
+            invoice_number, supplier_name, entry_date, items, invoice_url,
+            generate_expense // Novo campo vindo do front
+        } = req.body;
 
         if (!items || items.length === 0) {
             return res.status(400).json({ message: 'A entrada deve ter pelo menos um item.' });
@@ -37,7 +40,6 @@ const createEntry = async (req, res) => {
             );
 
             // ATUALIZA PRODUTO: Sobe Estoque e Atualiza Custo
-            // Aqui usamos o custo da ÚLTIMA entrada como custo atual.
             await query(
                 `UPDATE products 
                  SET stock = stock + $1, cost_price = $2 
@@ -57,6 +59,22 @@ const createEntry = async (req, res) => {
 
         // 3. Atualiza Total da Entrada
         await query('UPDATE product_entries SET total_amount = $1 WHERE id = $2', [totalAmount, entryId]);
+
+        // 4. GERAÇÃO AUTOMÁTICA DE DESPESA (FINANCEIRO)
+        if (generate_expense === true && totalAmount > 0) {
+            await query(
+                `INSERT INTO transactions (
+                    tenant_id, description, amount, type, status, date, created_by, category_id
+                ) VALUES ($1, $2, $3, 'expense', 'pending', $4, $5, null)`,
+                [
+                    tenantId, 
+                    `Compra NF ${invoice_number || ''} - ${supplier_name || 'Fornecedor'}`, 
+                    totalAmount, 
+                    entry_date || new Date(), 
+                    userId
+                ]
+            );
+        }
 
         await query('COMMIT');
         return res.status(201).json({ message: 'Entrada registrada com sucesso!', entryId });
@@ -108,4 +126,43 @@ const getEntryDetails = async (req, res) => {
     }
 };
 
-module.exports = { createEntry, getEntries, getEntryDetails };
+// Excluir Entrada (Com Estorno de Estoque)
+const deleteEntry = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const userId = req.user.id;
+        const { id } = req.params;
+
+        await query('BEGIN');
+
+        // 1. Busca itens para estornar estoque
+        const itemsRes = await query('SELECT product_id, quantity FROM product_entry_items WHERE entry_id = $1', [id]);
+        
+        for (const item of itemsRes.rows) {
+            // Remove do estoque (Estorno)
+            await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.product_id]);
+            
+            // Registra movimentação de estorno
+            await query(`
+                INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
+                VALUES ($1, $2, 'out', $3, 'correction', $4, $5)
+            `, [tenantId, item.product_id, item.quantity, `Estorno NF Entrada #${id}`, userId]);
+        }
+
+        // 2. Exclui a Nota (Cascade apaga itens da tabela product_entry_items)
+        await query('DELETE FROM product_entries WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
+
+        // Nota: A transação financeira gerada não é excluída automaticamente por segurança, 
+        // mas poderia ser feito buscando pelo description/data se necessário.
+
+        await query('COMMIT');
+        return res.json({ message: 'Entrada excluída e estoque estornado.' });
+
+    } catch (error) {
+        await query('ROLLBACK');
+        console.error(error);
+        return res.status(500).json({ message: 'Erro ao excluir entrada.' });
+    }
+};
+
+module.exports = { createEntry, getEntries, getEntryDetails, deleteEntry };

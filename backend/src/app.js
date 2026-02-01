@@ -24,6 +24,7 @@ const taskRoutes = require('./routes/taskRoutes');
 const planRoutes = require('./routes/planRoutes');
 const saleRoutes = require('./routes/saleRoutes');
 const entryRoutes = require('./routes/entryRoutes'); // --- NOVO ---
+const supplierRoutes = require('./routes/supplierRoutes');
 
 const { apiLimiter, authLimiter } = require('./middlewares/rateLimiter');
 const logger = require('./config/logger');
@@ -63,6 +64,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/plans', planRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/api/entries', entryRoutes); // --- REGISTRADO ---
+app.use('/api/suppliers', supplierRoutes);
 
 app.get('/', (req, res) => {
     res.json({ status: 'API Online 🚀', version: '1.9.0', mode: 'Full ERP' });

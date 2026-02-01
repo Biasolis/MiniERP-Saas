@@ -1,9 +1,10 @@
+/* --- HEADER --- */
 .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1.5rem;
-    flex-wrap: wrap; /* Garante que não quebre em telas pequenas */
+    flex-wrap: wrap;
     gap: 10px;
 }
 
@@ -21,7 +22,7 @@
 }
 .backBtn:hover { color: var(--primary-color); }
 
-/* Grupo de Botões */
+/* Grupo de Botões de Impressão */
 .printGroup {
     display: flex;
     gap: 5px;
@@ -38,7 +39,7 @@
     margin: 0 5px;
 }
 
-/* Botões de Ação */
+/* --- BOTÕES DE AÇÃO (PADRONIZADOS) --- */
 .btnPrint {
     background: transparent;
     border: none;
@@ -70,19 +71,41 @@
 }
 .btnEdit:hover { background: #f9fafb; }
 
-.btnReopen {
-    background: #fff7ed;
-    color: #c2410c;
-    border: 1px solid #ffedd5;
+/* Botão Iniciar / Retomar (Azul) */
+.btnStart {
+    background: #3b82f6;
+    color: white;
+    border: none;
     padding: 8px 12px;
     border-radius: 6px;
     cursor: pointer;
     display: flex;
-    gap: 5px;
+    gap: 6px;
     align-items: center;
     font-weight: 600;
+    font-size: 0.85rem;
+    transition: background 0.2s;
 }
+.btnStart:hover { background: #2563eb; }
 
+/* Botão Pausar / Aguardar (Laranja) */
+.btnWait {
+    background: #f59e0b;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+}
+.btnWait:hover { background: #d97706; }
+
+/* Botão Finalizar (Verde) */
 .btnFinish {
     background: #059669;
     color: white;
@@ -99,7 +122,23 @@
 }
 .btnFinish:hover { background: #047857; }
 
-/* LAYOUT PRINCIPAL */
+/* Botão Reabrir (Vermelho Claro) */
+.btnReopen {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #ffedd5;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    font-weight: 600;
+}
+.btnReopen:hover { background: #ffedd5; }
+
+
+/* --- LAYOUT PRINCIPAL (GRID) --- */
 .gridContainer {
     display: grid;
     grid-template-columns: 350px 1fr;
@@ -111,7 +150,9 @@
     .header { flex-direction: column; align-items: flex-start; }
 }
 
-/* CARDS */
+.leftCol, .rightCol { display: flex; flex-direction: column; gap: 1.5rem; }
+
+/* --- CARDS --- */
 .card {
     background: white;
     padding: 1.5rem;
@@ -153,14 +194,15 @@
     border: 1px solid #f3f4f6;
 }
 
-/* BADGES */
+/* --- BADGES DE STATUS --- */
 .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
 .open { background: #dbeafe; color: #1e40af; }
 .in_progress { background: #fef3c7; color: #92400e; }
 .completed { background: #d1fae5; color: #065f46; }
 .waiting { background: #f3f4f6; color: #6b7280; }
+.cancelled { background: #fee2e2; color: #991b1b; }
 
-/* FORMS */
+/* --- FORMULÁRIOS --- */
 .inputLabel { display: block; margin-bottom: 5px; font-size: 0.85rem; font-weight: 500; color: #374151; }
 .input { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
 .input:focus { outline: none; border-color: var(--primary-color); }
@@ -182,7 +224,7 @@
 }
 .btnAdd:hover { opacity: 0.9; }
 
-/* TABELA */
+/* --- TABELA DE ITENS --- */
 .tableWrapper { overflow-x: auto; }
 .itemTable { width: 100%; border-collapse: collapse; margin-top: 10px; }
 .itemTable th { text-align: left; border-bottom: 2px solid #f3f4f6; padding: 10px; color: #6b7280; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; }
@@ -194,6 +236,7 @@
 }
 .btnTrash:hover { background: #fee2e2; }
 
+/* --- TOTAL BOX --- */
 .totalBox {
     margin-top: 20px; padding-top: 20px; border-top: 2px dashed #e5e7eb;
     display: flex; justify-content: space-between; align-items: center;

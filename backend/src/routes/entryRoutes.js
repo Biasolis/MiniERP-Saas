@@ -8,5 +8,6 @@ router.use(authMiddleware);
 router.post('/', entryController.createEntry);
 router.get('/', entryController.getEntries);
 router.get('/:id', entryController.getEntryDetails);
+router.delete('/:id', entryController.deleteEntry); // Rota de exclusão
 
 module.exports = router;

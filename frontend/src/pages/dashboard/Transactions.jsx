@@ -4,7 +4,7 @@ import DashboardLayout from '../../components/layout/DashboardLayout';
 import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
 import styles from './Transactions.module.css';
-import { Plus, Loader2, Check, Clock, RotateCcw, Paperclip, FileText } from 'lucide-react';
+import { Plus, Loader2, Check, Clock, RotateCcw, Paperclip, Trash2 } from 'lucide-react';
 
 export default function Transactions() {
   const { addToast } = useContext(ToastContext);
@@ -89,7 +89,21 @@ export default function Transactions() {
     }
   }
 
-  // 3. Salvar Nova Transação (Com Upload)
+  // 3. Ação de Excluir Transação (NOVO)
+  async function handleDelete(id) {
+    if (!confirm('Tem certeza que deseja excluir este lançamento financeiro?')) return;
+
+    try {
+        await api.delete(`/transactions/${id}`);
+        setTransactions(prev => prev.filter(t => t.id !== id));
+        addToast({ type: 'success', title: 'Lançamento removido com sucesso.' });
+    } catch (error) {
+        console.error(error);
+        addToast({ type: 'error', title: 'Erro ao excluir lançamento.' });
+    }
+  }
+
+  // 4. Salvar Nova Transação (Com Upload)
   async function handleSubmit(e) {
     e.preventDefault();
     setIsSaving(true);
@@ -144,17 +158,12 @@ export default function Transactions() {
     }
   }
 
-  // Helper para abrir anexo (Compatível com S3 e Local)
+  // Helper para abrir anexo
   const openAttachment = (path) => {
       if (!path) return;
-
-      // Se já for uma URL completa (S3/CDN), abre direto
       if (path.startsWith('http')) {
           window.open(path, '_blank');
       } else {
-          // Se for caminho relativo (Local), adiciona o domínio da API
-          // Em produção, isso deveria vir de uma variável de ambiente (ex: import.meta.env.VITE_API_URL)
-          // Aqui usamos localhost:3000 como padrão para desenvolvimento
           const baseUrl = 'http://localhost:3000'; 
           window.open(`${baseUrl}${path}`, '_blank');
       }
@@ -232,7 +241,6 @@ export default function Transactions() {
                   <td>
                       <div style={{fontWeight: 500, display:'flex', alignItems:'center', gap:'6px'}}>
                           {t.description}
-                          {/* Ícone de Anexo se existir */}
                           {t.attachment_path && (
                               <button 
                                 onClick={() => openAttachment(t.attachment_path)} 
@@ -253,13 +261,24 @@ export default function Transactions() {
                     </span>
                   </td>
                   <td style={{textAlign:'center'}}>
-                    <button 
-                        className={`${styles.actionBtn} ${t.status === 'completed' ? styles.actionBtnCompleted : ''}`}
-                        onClick={() => toggleStatus(t.id, t.status)}
-                        title={t.status === 'pending' ? "Marcar como Pago/Recebido" : "Desfazer (Marcar como Pendente)"}
-                    >
-                        {t.status === 'pending' ? <Check size={18} /> : <RotateCcw size={16} />}
-                    </button>
+                    <div className={styles.actionsGroup}>
+                        <button 
+                            className={`${styles.actionBtn} ${t.status === 'completed' ? styles.actionBtnCompleted : ''}`}
+                            onClick={() => toggleStatus(t.id, t.status)}
+                            title={t.status === 'pending' ? "Marcar como Pago/Recebido" : "Desfazer (Marcar como Pendente)"}
+                        >
+                            {t.status === 'pending' ? <Check size={18} /> : <RotateCcw size={16} />}
+                        </button>
+                        
+                        {/* Botão de Excluir */}
+                        <button 
+                            className={styles.btnDelete}
+                            onClick={() => handleDelete(t.id)}
+                            title="Excluir Lançamento"
+                        >
+                            <Trash2 size={16} />
+                        </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -351,7 +370,6 @@ export default function Transactions() {
             </div>
           </div>
 
-          {/* CAMPO DE UPLOAD */}
           <div>
               <label style={{display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem'}}>
                   Anexar Comprovante (Imagem ou PDF)
