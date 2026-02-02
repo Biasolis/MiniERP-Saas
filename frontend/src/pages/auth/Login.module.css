@@ -1,127 +1,145 @@
+/* Container principal com Imagem de Fundo */
 .container {
+  min-height: 100vh;
   display: flex;
   align-items: center;
-  justify-content: center; /* Centraliza horizontalmente */
-  width: 100vw; /* FORÇA LARGURA TOTAL DA TELA */
-  height: 100vh; /* FORÇA ALTURA TOTAL DA TELA */
-  position: fixed; /* Garante que fique fixo sobre qualquer coisa */
-  top: 0;
-  left: 0;
-  
-  /* Imagem de Fundo */
-  background-image: url('https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=2301&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D');
+  justify-content: center;
+  /* Exemplo de imagem de fundo profissional (substitua pela sua URL se tiver) */
+  background-image: url('https://images.unsplash.com/photo-1497215728101-856f4ea42174?q=80&w=2070&auto=format&fit=crop');
   background-size: cover;
   background-position: center;
-  background-repeat: no-repeat;
-  
-  /* Camada escura */
-  background-color: rgba(0, 0, 0, 0.5);
-  background-blend-mode: overlay;
-  
-  /* Garante que o padding não aumente o tamanho total */
-  box-sizing: border-box; 
+  position: relative;
+  padding: 20px;
 }
 
+/* Overlay escuro para melhorar leitura sobre a imagem */
+.overlay {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(15, 23, 42, 0.6); /* Azul marinho escuro transparente */
+  backdrop-filter: blur(4px); /* Leve desfoque no fundo */
+}
+
+/* Card de Login - MAIOR */
 .card {
-  background: rgba(255, 255, 255, 0.95);
-  padding: 3rem;
-  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.98); /* Quase branco sólido */
+  width: 100%;
+  max-width: 550px; /* <-- AUMENTADO PARA 550px */
+  padding: 3.5rem;  /* Aumentado o padding interno */
+  border-radius: 24px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  width: 90%; /* Ocupa 90% da tela em celulares */
-  max-width: 600px; /* Limite máximo para desktop */
   text-align: center;
-  backdrop-filter: blur(10px);
-  
-  /* Animação suave de entrada */
-  animation: slideUp 0.5s ease-out;
+  position: relative; /* Para ficar acima do overlay */
+  z-index: 10;
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Header e Logo */
+.header {
+    margin-bottom: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.logoIcon {
+    width: 64px; height: 64px;
+    background: linear-gradient(135deg, var(--primary-color), #3b82f6);
+    border-radius: 16px;
+    display: flex; align-items: center; justifyContent: center;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.3);
 }
 
 .title {
-  margin-bottom: 2rem;
-  color: #111827;
-  font-size: 2rem;
+  font-size: 1.8rem;
   font-weight: 800;
-  letter-spacing: -0.025em;
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.5px;
 }
 
+.subtitle {
+  color: #64748b;
+  font-size: 1rem;
+}
+
+/* Formulário e Inputs */
 .form {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-}
-
-.inputGroup {
   text-align: left;
 }
 
 .label {
   display: block;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: #374151;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: #334155;
+  margin-bottom: 0.5rem;
+}
+
+.inputWrapper {
+    position: relative;
+    display: flex; align-items: center;
+}
+
+.fieldIcon {
+    position: absolute;
+    left: 16px;
+    color: #94a3b8;
 }
 
 .input {
   width: 100%;
-  padding: 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px; /* Borda um pouco mais arredondada */
+  padding: 1rem 1rem 1rem 48px; /* Espaço para o ícone */
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
   font-size: 1rem;
   transition: all 0.2s;
-  background-color: #f9fafb;
+  background: #f8fafc;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--primary-color);
-  background-color: white;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+  background: white;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+}
+
+.forgotLink {
+    font-size: 0.9rem;
+    color: var(--primary-color);
+    font-weight: 600;
 }
 
 .button {
-  background-color: var(--primary-color);
+  background: linear-gradient(to right, var(--primary-color), #6366f1);
   color: white;
   padding: 1rem;
+  border-radius: 12px;
   border: none;
-  border-radius: 8px;
+  font-weight: 700;
   font-size: 1.1rem;
-  font-weight: 600;
-  margin-top: 1.5rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
+  margin-top: 1rem;
+  transition: all 0.3s;
+  display: flex; align-items: center; justifyContent: center; gap: 10px;
 }
 
-.button:hover {
-  background-color: var(--primary-hover);
+.button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px -10px rgba(79, 70, 229, 0.5);
 }
 
-.button:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
+.footer {
+  margin-top: 2.5rem;
+  font-size: 1rem;
+  color: #64748b;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
 }
 
-/* Link para alternar entre login/registro */
-.footerText {
-  margin-top: 1.5rem;
-  font-size: 0.9rem;
-  color: #4b5563;
-}
-
-.link {
+.footer a {
   color: var(--primary-color);
   font-weight: 700;
-  text-decoration: none;
-  margin-left: 0.5rem;
-}
-
-.link:hover {
-  text-decoration: underline;
 }

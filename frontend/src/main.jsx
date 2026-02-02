@@ -1,8 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
-// Mantém apenas o nosso global.css se ele estiver importado no App.jsx ou aqui. 
-// Se estiver no App.jsx, não precisa aqui.
+import './styles/global.css'; // <--- GARANTINDO A IMPORTAÇÃO DOS ESTILOS GLOBAIS
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

@@ -1,19 +1,39 @@
-.layout {
-  display: grid;
-  grid-template-columns: 260px 1fr; /* Sidebar fixa + Conteúdo flúido */
+.container {
   min-height: 100vh;
+  width: 100%;
+  background-color: var(--background-color);
+  position: relative;
+  
+  /* --- AQUI ESTÁ O AJUSTE QUE FUNCIONA NO NAVEGADOR --- */
+  padding-left: var(--sidebar-width); /* 280px de espaço reservado */
+  /* ---------------------------------------------------- */
+  
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* Nenhuma margem aqui, o padding do pai já resolveu */
 }
 
 .main {
-  background-color: #f9fafb;
-  padding: 2rem;
-  overflow-y: auto;
-  max-height: 100vh;
+  flex: 1;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 1600px;
+  /* Nenhuma margem aqui também */
 }
 
-/* Responsividade simples para telas menores (futuramente pode colapsar menu) */
-@media (max-width: 768px) {
-  .layout {
-    grid-template-columns: 1fr;
+/* Responsividade: Remove o padding lateral em telas menores */
+@media (max-width: 900px) {
+  .container {
+    padding-left: 0;
+  }
+  .main {
+    padding: 1.5rem;
   }
 }

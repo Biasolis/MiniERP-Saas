@@ -8,45 +8,53 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('saas_user');
-    const storedToken = localStorage.getItem('saas_token');
+    const recoverUser = async () => {
+      const storedUser = localStorage.getItem('saas_user');
+      const storedToken = localStorage.getItem('saas_token');
 
-    if (storedUser && storedToken) {
-      try {
-        // Validação básica de expiração
-        const payloadBase64 = storedToken.split('.')[1];
-        const payload = JSON.parse(atob(payloadBase64));
-        const exp = payload.exp * 1000;
+      if (storedUser && storedToken) {
+        try {
+          // Validação básica de expiração
+          const payloadBase64 = storedToken.split('.')[1];
+          if (payloadBase64) {
+            const payload = JSON.parse(atob(payloadBase64));
+            const exp = payload.exp * 1000;
 
-        if (Date.now() >= exp) {
-            console.warn("AuthContext: Token expirado na inicialização.");
+            if (Date.now() >= exp) {
+              console.warn("AuthContext: Token expirado na inicialização.");
+              signOut();
+              setLoading(false);
+              return;
+            }
+          }
+
+          const parsedUser = JSON.parse(storedUser);
+          
+          // Normalização Forçada na Inicialização
+          const isSuperAdmin = parsedUser.isSuperAdmin === true || parsedUser.is_super_admin === true;
+
+          const normalizedUser = {
+              ...parsedUser,
+              isSuperAdmin: isSuperAdmin
+          };
+
+          // --- CORREÇÃO CRUCIAL AQUI ---
+          // Define o token no Header do Axios IMEDIATAMENTE ao carregar
+          api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          
+          setUser(normalizedUser);
+          applyTheme(normalizedUser.tenant_color);
+
+        } catch (e) {
+            console.error("AuthContext: Erro ao parsear token/user", e);
             signOut();
-        } else {
-            const parsedUser = JSON.parse(storedUser);
-            
-            // --- CORREÇÃO PRINCIPAL AQUI ---
-            // Normalização Forçada na Inicialização (F5/Reload)
-            // Garante que isSuperAdmin exista mesmo se vier como is_super_admin do cache antigo
-            const isSuperAdmin = parsedUser.isSuperAdmin === true || parsedUser.is_super_admin === true;
-
-            const normalizedUser = {
-                ...parsedUser,
-                isSuperAdmin: isSuperAdmin
-            };
-
-            // console.log("AuthContext: Usuário carregado e normalizado:", normalizedUser);
-            
-            setUser(normalizedUser);
-            applyTheme(normalizedUser.tenant_color);
         }
-      } catch (e) {
-          console.error("AuthContext: Erro ao parsear token/user", e);
-          signOut();
       }
-    } else {
+      
       setLoading(false);
-    }
-    setLoading(false);
+    };
+
+    recoverUser();
   }, []);
 
   const applyTheme = (color) => {
@@ -62,18 +70,20 @@ export const AuthProvider = ({ children }) => {
       
       const { token, user: userData } = response.data;
 
-      // --- CORREÇÃO PRINCIPAL AQUI ---
       // Normalização Forçada no Login
       const isSuperAdmin = userData.isSuperAdmin === true || userData.is_super_admin === true;
 
       const userWithTheme = { 
         ...userData, 
         tenant_color: userData.primary_color || '#2563eb',
-        isSuperAdmin: isSuperAdmin // Salva já normalizado como camelCase
+        isSuperAdmin: isSuperAdmin 
       };
 
       localStorage.setItem('saas_token', token);
       localStorage.setItem('saas_user', JSON.stringify(userWithTheme));
+
+      // Define header para a sessão atual
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
       setUser(userWithTheme);
       applyTheme(userWithTheme.tenant_color);
@@ -92,9 +102,13 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('saas_token');
     localStorage.removeItem('saas_user');
     setUser(null);
+    api.defaults.headers.common['Authorization'] = undefined;
     document.documentElement.style.removeProperty('--primary-color');
     document.documentElement.style.removeProperty('--primary-hover');
-    window.location.href = '/login';
+    
+    if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+    }
   };
 
   return (

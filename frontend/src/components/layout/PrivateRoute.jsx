@@ -9,12 +9,12 @@ export default function PrivateRoute({ children }) {
         return (
             <div style={{
                 height: '100vh', 
+                width: '100%',
                 display: 'flex', 
                 justifyContent: 'center', 
                 alignItems: 'center',
-                color: '#666',
-                fontFamily: 'sans-serif',
-                fontSize: '1.2rem'
+                backgroundColor: '#f8fafc',
+                color: '#64748b'
             }}>
                 Carregando...
             </div>
@@ -22,7 +22,7 @@ export default function PrivateRoute({ children }) {
     }
 
     if (!user) {
-        return <Navigate to="/login" />;
+        return <Navigate to="/login" replace />;
     }
 
     return children;

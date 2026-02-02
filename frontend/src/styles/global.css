@@ -1,48 +1,46 @@
 :root {
-  /* Cores Padrão (Fallback) - Azul Profissional */
-  --primary-color: #2563eb;
-  --primary-hover: #1d4ed8;
-  --secondary-color: #ffffff;
-  --text-color: #1f2937;
-  --bg-color: #f3f4f6;
-  --sidebar-bg: #111827;
-  --sidebar-text: #e5e7eb;
-  --danger-color: #dc2626;
-  --success-color: #10b981;
+  /* Dimensões */
+  --sidebar-width: 280px;
+  
+  /* Cores Institucionais */
+  --primary-color: #4f46e5;
+  --primary-hover: #4338ca;
+  --secondary-color: #64748b;
+  
+  /* Cores de Fundo e Texto */
+  --background-color: #f1f5f9;    /* Slate 100 */
+  --surface-color: #ffffff;
+  --text-color: #0f172a;          /* Slate 900 */
+  --text-secondary: #475569;      /* Slate 600 */
+  --border-color: #e2e8f0;
 
-  /* Espaçamentos e Bordas */
-  --radius: 8px;
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  /* SIDEBAR TEMPLATE (Slate Escuro Profissional) */
+  --sidebar-bg: #1e293b;          /* Slate 800 */
+  --sidebar-text: #cbd5e1;        /* Slate 300 */
+  --sidebar-hover: #334155;       /* Slate 700 */
+  --sidebar-active: #4f46e5;      /* Indigo */
 }
 
+/* Reset simples para não conflitar com Layouts */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  background-color: var(--bg-color);
+  background-color: var(--background-color);
   color: var(--text-color);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
-button {
-  cursor: pointer;
-  font-family: inherit;
-}
-
-input, select {
-  font-family: inherit;
-}
-
-/* Utilitários simples */
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1rem;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
 
 .spin { animation: spin 1s linear infinite; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes spin { 100% { transform: rotate(360deg); } }

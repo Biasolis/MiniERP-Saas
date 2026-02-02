@@ -14,35 +14,31 @@ import DashboardHome from './pages/dashboard/DashboardHome';
 import Transactions from './pages/dashboard/Transactions';
 import Clients from './pages/dashboard/Clients';
 import ClientDetails from './pages/dashboard/ClientDetails';
+import ServiceOrders from './pages/dashboard/ServiceOrders';
+import ServiceOrderDetails from './pages/dashboard/ServiceOrderDetails';
 import Products from './pages/dashboard/Products';
 import Settings from './pages/dashboard/Settings';
 import Reports from './pages/dashboard/Reports';
 import Recurring from './pages/dashboard/Recurring';
+import Sales from './pages/dashboard/Sales';
 import Suppliers from './pages/dashboard/Suppliers';
 import StockEntries from './pages/dashboard/StockEntries';
 import AuditLogs from './pages/dashboard/AuditLogs';
 import Profile from './pages/dashboard/Profile';
+import Quotes from './pages/dashboard/Quotes';
+import QuoteDetails from './pages/dashboard/QuoteDetails';
 import Notifications from './pages/dashboard/Notifications';
 import CalendarPage from './pages/dashboard/CalendarPage';
 import TasksPage from './pages/dashboard/TasksPage';
-
-// Pages - Módulos Específicos
-import ServiceOrders from './pages/dashboard/ServiceOrders';
-import ServiceOrderDetails from './pages/dashboard/ServiceOrderDetails';
-import PrintOS from './pages/dashboard/PrintOS';
-import Sales from './pages/dashboard/Sales';
-import Quotes from './pages/dashboard/Quotes';
-import QuoteDetails from './pages/dashboard/QuoteDetails';
+import AdminDashboard from './pages/admin/AdminDashboard';
 import PcpDashboard from './pages/dashboard/PcpDashboard';
 import PcpDetails from './pages/dashboard/PcpDetails';
+import PrintOS from './pages/dashboard/PrintOS';
 
-// Pages - Novos Módulos (PDV, Histórico e RH)
+// Pages - Novos Módulos
 import PosTerminal from './pages/pos/PosTerminal';
-import PosHistory from './pages/dashboard/PosHistory';
-import HumanResources from './pages/dashboard/HumanResources';
-
-// Pages - Admin
-import AdminDashboard from './pages/admin/AdminDashboard';
+import PosHistory from './pages/dashboard/PosHistory';     // Certifique-se que existe
+import HumanResources from './pages/dashboard/HumanResources'; // Certifique-se que existe
 
 export default function App() {
   return (
@@ -56,47 +52,35 @@ export default function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
             
-            {/* Rota do PDV (Sem Sidebar - Tela Cheia) */}
+            {/* Rota do PDV (Sem Sidebar) */}
             <Route path="/pos" element={<PrivateRoute><PosTerminal /></PrivateRoute>} />
 
-            {/* Rotas com DashboardLayout */}
+            {/* Rotas Dashboard Protegidas */}
             <Route path="/dashboard" element={<PrivateRoute><DashboardHome /></PrivateRoute>} />
             <Route path="/dashboard/transactions" element={<PrivateRoute><Transactions /></PrivateRoute>} />
-            
-            {/* Clientes */}
             <Route path="/dashboard/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
             <Route path="/dashboard/clients/:id" element={<PrivateRoute><ClientDetails /></PrivateRoute>} />
-            
-            {/* Ordens de Serviço */}
             <Route path="/dashboard/service-orders" element={<PrivateRoute><ServiceOrders /></PrivateRoute>} />
             <Route path="/dashboard/service-orders/:id" element={<PrivateRoute><ServiceOrderDetails /></PrivateRoute>} />
             <Route path="/dashboard/print-os/:id" element={<PrivateRoute><PrintOS /></PrivateRoute>} />
-            
-            {/* Produtos e Estoque */}
             <Route path="/dashboard/products" element={<PrivateRoute><Products /></PrivateRoute>} />
-            <Route path="/dashboard/stock-entries" element={<PrivateRoute><StockEntries /></PrivateRoute>} />
-            <Route path="/dashboard/suppliers" element={<PrivateRoute><Suppliers /></PrivateRoute>} />
-            
-            {/* Vendas e Financeiro */}
             <Route path="/dashboard/sales" element={<PrivateRoute><Sales /></PrivateRoute>} />
             <Route path="/dashboard/recurring" element={<PrivateRoute><Recurring /></PrivateRoute>} />
-            <Route path="/dashboard/quotes" element={<PrivateRoute><Quotes /></PrivateRoute>} />
-            <Route path="/dashboard/quotes/:id" element={<PrivateRoute><QuoteDetails /></PrivateRoute>} />
-            
-            {/* Gestão e Utilitários */}
             <Route path="/dashboard/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
             <Route path="/dashboard/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
+            <Route path="/dashboard/suppliers" element={<PrivateRoute><Suppliers /></PrivateRoute>} />
+            <Route path="/dashboard/stock-entries" element={<PrivateRoute><StockEntries /></PrivateRoute>} />
             <Route path="/dashboard/audit" element={<PrivateRoute><AuditLogs /></PrivateRoute>} />
             <Route path="/dashboard/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+            <Route path="/dashboard/quotes" element={<PrivateRoute><Quotes /></PrivateRoute>} />
+            <Route path="/dashboard/quotes/:id" element={<PrivateRoute><QuoteDetails /></PrivateRoute>} />
             <Route path="/dashboard/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
             <Route path="/dashboard/calendar" element={<PrivateRoute><CalendarPage /></PrivateRoute>} />
             <Route path="/dashboard/tasks" element={<PrivateRoute><TasksPage /></PrivateRoute>} />
-            
-            {/* Módulo PCP */}
             <Route path="/dashboard/pcp" element={<PrivateRoute><PcpDashboard /></PrivateRoute>} />
             <Route path="/dashboard/pcp/:id" element={<PrivateRoute><PcpDetails /></PrivateRoute>} />
             
-            {/* NOVAS ROTAS (Histórico de Caixa e RH) */}
+            {/* Novas Rotas */}
             <Route path="/dashboard/pos-history" element={<PrivateRoute><PosHistory /></PrivateRoute>} />
             <Route path="/dashboard/hr" element={<PrivateRoute><HumanResources /></PrivateRoute>} />
 
