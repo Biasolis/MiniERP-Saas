@@ -2,26 +2,23 @@
   /* Dimensões */
   --sidebar-width: 280px;
   
-  /* Cores Institucionais */
+  /* Cores */
   --primary-color: #4f46e5;
   --primary-hover: #4338ca;
   --secondary-color: #64748b;
   
-  /* Cores de Fundo e Texto */
-  --background-color: #f1f5f9;    /* Slate 100 */
+  --background-color: #f1f5f9;
   --surface-color: #ffffff;
-  --text-color: #0f172a;          /* Slate 900 */
-  --text-secondary: #475569;      /* Slate 600 */
+  --text-color: #1e293b;
   --border-color: #e2e8f0;
 
-  /* SIDEBAR TEMPLATE (Slate Escuro Profissional) */
-  --sidebar-bg: #1e293b;          /* Slate 800 */
-  --sidebar-text: #cbd5e1;        /* Slate 300 */
-  --sidebar-hover: #334155;       /* Slate 700 */
-  --sidebar-active: #4f46e5;      /* Indigo */
+  /* Sidebar Theme (Azul Escuro) */
+  --sidebar-bg: #1e293b;
+  --sidebar-text: #cbd5e1;
+  --sidebar-hover: #334155;
+  --sidebar-active: #4f46e5;
 }
 
-/* Reset simples para não conflitar com Layouts */
 * {
   margin: 0;
   padding: 0;
@@ -34,13 +31,8 @@ body {
   background-color: var(--background-color);
   color: var(--text-color);
   min-height: 100vh;
-  overflow-x: hidden;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
-
+/* Utilitários */
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { 100% { transform: rotate(360deg); } }

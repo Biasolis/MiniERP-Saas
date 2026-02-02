@@ -1,66 +1,90 @@
 .sidebar {
-  width: var(--sidebar-width); /* 280px */
+  width: var(--sidebar-width);
   height: 100vh;
-  background-color: var(--sidebar-bg); /* Azul Escuro */
+  background-color: var(--sidebar-bg); /* #1e293b */
   color: var(--sidebar-text);
   border-right: 1px solid rgba(255,255,255,0.05);
   
-  /* FIXO NA TELA */
+  /* Mantém fixo */
   position: fixed;
   left: 0;
   top: 0;
-  z-index: 50; /* Garante que fique acima do padding */
+  z-index: 50;
   
   display: flex;
   flex-direction: column;
   transition: all 0.3s ease;
-  box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+  box-shadow: 4px 0 20px rgba(0,0,0,0.2);
 }
 
+/* --- AJUSTE DO LOGO (O Pulo do Gato) --- */
 .logo {
-  padding: 2rem 1.5rem;
+  /* Mais altura e espaçamento para não ficar espremido */
+  padding: 2.5rem 1.5rem; 
   display: flex;
-  flex-direction: column;
+  flex-direction: column; /* Ícone em cima, texto embaixo */
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
   text-align: center;
+  
+  /* Adiciona respiro entre o logo e o menu */
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  
+  /* Separa o ícone do texto */
+  gap: 12px; 
 }
 
+/* Ícone do Logo (se for SVG ou Imagem) */
+.logo svg {
+  width: 40px;
+  height: 40px;
+  /* Um brilho sutil no ícone */
+  filter: drop-shadow(0 0 8px rgba(79, 70, 229, 0.4)); 
+  color: var(--primary-color);
+}
+
+/* Texto Principal "MiniERP" */
 .logo h2 {
-  color: #fff;
-  font-size: 1.25rem;
+  color: #ffffff;
+  font-size: 1.4rem; /* Um pouco maior */
   font-weight: 700;
-  margin-top: 8px;
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.5px; /* Deixa mais moderno */
 }
 
+/* Subtítulo "Finance" ou "SaaS" */
 .logo small {
   color: #94a3b8;
   font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 2px; /* Espaça bem as letras */
+  margin-top: 4px;
+  display: block;
 }
 
+/* --- RESTANTE DO MENU (Igual ao anterior) --- */
 .nav {
   flex: 1;
+  overflow-y: auto;
+  padding: 0 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 1.5rem 1rem;
-  overflow-y: auto;
 }
 
-/* Scrollbar escura interna */
 .nav::-webkit-scrollbar { width: 4px; }
 .nav::-webkit-scrollbar-thumb { background-color: #475569; border-radius: 4px; }
 
 .link {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px; /* Mais espaço entre ícone do menu e texto */
   padding: 12px 16px;
   border-radius: 8px;
-  color: var(--sidebar-text);
+  color: #cbd5e1;
   font-size: 0.95rem;
   font-weight: 500;
   transition: all 0.2s;
@@ -70,21 +94,27 @@
 }
 
 .link:hover {
-  background-color: var(--sidebar-hover);
-  color: #fff;
+  background-color: rgba(255,255,255,0.05);
+  color: #ffffff;
+  transform: translateX(4px); /* Efeito sutil de movimento */
 }
 
 .active {
-  background-color: var(--sidebar-active);
-  color: #fff !important;
+  background-color: var(--primary-color); /* #4f46e5 */
+  color: #ffffff !important;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 15px rgba(79, 70, 229, 0.35); /* Glow mais bonito */
+  border: none;
+}
+
+.active svg {
+  stroke-width: 2.5px; /* Ícone mais grosso no ativo */
 }
 
 .footer {
   padding: 1.5rem;
-  background-color: rgba(0,0,0,0.2);
   border-top: 1px solid rgba(255,255,255,0.1);
+  background-color: rgba(0,0,0,0.1);
 }
 
 .logoutBtn {
@@ -92,7 +122,7 @@
   padding: 12px;
   border-radius: 8px;
   background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  border: 1px solid rgba(239, 68, 68, 0.3);
   color: #fca5a5;
   font-weight: 600;
   display: flex;
@@ -100,10 +130,11 @@
   justify-content: center;
   gap: 10px;
   transition: all 0.2s;
+  cursor: pointer;
 }
 
 .logoutBtn:hover {
-  background-color: #ef4444;
-  color: white;
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
   border-color: #ef4444;
 }

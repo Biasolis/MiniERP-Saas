@@ -14,7 +14,7 @@ export const AuthProvider = ({ children }) => {
 
       if (storedUser && storedToken) {
         try {
-          // Validação básica de expiração
+          // Validação básica de expiração do token (JWT)
           const payloadBase64 = storedToken.split('.')[1];
           if (payloadBase64) {
             const payload = JSON.parse(atob(payloadBase64));
@@ -30,7 +30,11 @@ export const AuthProvider = ({ children }) => {
 
           const parsedUser = JSON.parse(storedUser);
           
-          // Normalização Forçada na Inicialização
+          // --- CORREÇÃO DE SEGURANÇA: DEFINIR HEADER IMEDIATAMENTE ---
+          api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+
+          // Normalização Forçada na Inicialização (F5/Reload)
+          // Garante que isSuperAdmin exista mesmo se vier como is_super_admin do cache antigo
           const isSuperAdmin = parsedUser.isSuperAdmin === true || parsedUser.is_super_admin === true;
 
           const normalizedUser = {
@@ -38,12 +42,14 @@ export const AuthProvider = ({ children }) => {
               isSuperAdmin: isSuperAdmin
           };
 
-          // --- CORREÇÃO CRUCIAL AQUI ---
-          // Define o token no Header do Axios IMEDIATAMENTE ao carregar
-          api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          // console.log("AuthContext: Usuário carregado e normalizado:", normalizedUser);
           
           setUser(normalizedUser);
-          applyTheme(normalizedUser.tenant_color);
+          
+          // Aplica o tema se existir
+          if (normalizedUser.tenant_color) {
+             applyTheme(normalizedUser.tenant_color);
+          }
 
         } catch (e) {
             console.error("AuthContext: Erro ao parsear token/user", e);
@@ -75,14 +81,14 @@ export const AuthProvider = ({ children }) => {
 
       const userWithTheme = { 
         ...userData, 
-        tenant_color: userData.primary_color || '#2563eb',
-        isSuperAdmin: isSuperAdmin 
+        tenant_color: userData.primary_color || '#2563eb', // Fallback blue
+        isSuperAdmin: isSuperAdmin // Salva já normalizado como camelCase
       };
 
       localStorage.setItem('saas_token', token);
       localStorage.setItem('saas_user', JSON.stringify(userWithTheme));
 
-      // Define header para a sessão atual
+      // Define header para requisições futuras
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
       setUser(userWithTheme);
@@ -106,6 +112,7 @@ export const AuthProvider = ({ children }) => {
     document.documentElement.style.removeProperty('--primary-color');
     document.documentElement.style.removeProperty('--primary-hover');
     
+    // Evita loop de redirecionamento se já estiver no login
     if (window.location.pathname !== '/login') {
         window.location.href = '/login';
     }
