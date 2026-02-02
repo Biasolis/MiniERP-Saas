@@ -1,154 +1,172 @@
-import { Link, useLocation } from 'react-router-dom';
-import { useState, useEffect, useContext } from 'react';
+import { useContext } from 'react';
+import { NavLink } from 'react-router-dom';
+import { AuthContext } from '../../context/AuthContext';
 import styles from './Sidebar.module.css';
 import { 
-  LayoutDashboard, Receipt, BarChart3, Settings as SettingsIcon, LogOut, 
-  ClipboardList, Users, Repeat, Package, Shield, Bell, UserCircle, Download, 
-  Calendar as CalendarIcon, CheckSquare, Layers, ShoppingCart, PackagePlus,
-  Truck, FileText, Factory, Monitor, 
-  History, Briefcase 
+  LayoutDashboard, 
+  ArrowRightLeft, 
+  Users, 
+  Settings, 
+  LogOut, 
+  Box, 
+  FileText, 
+  Briefcase, 
+  ShoppingCart, 
+  Repeat, 
+  Truck, 
+  Layers,
+  ClipboardList,
+  Calendar,
+  Bell,
+  ShieldCheck,
+  Factory,
+  Monitor,
+  DollarSign
 } from 'lucide-react';
-import { AuthContext } from '../../context/AuthContext';
 
 export default function Sidebar() {
-  const location = useLocation();
   const { signOut, user } = useContext(AuthContext);
-  
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [showInstallBtn, setShowInstallBtn] = useState(false);
-  const isActive = (path) => location.pathname === path;
-
-  useEffect(() => {
-    const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBtn(true); };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setShowInstallBtn(false);
-    setDeferredPrompt(null);
-  };
 
   return (
     <aside className={styles.sidebar}>
-      <div className={styles.logo} style={{ marginBottom: '2.5rem' }}>
-        <div style={{
-            width:'48px', height:'48px', 
-            background:'linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%)', 
-            borderRadius:'12px', 
-            display:'flex', alignItems:'center', justifyContent:'center',
-            boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
-            margin: '0 auto 10px auto'
-        }}>
-            <Layers size={28} color="white" />
+      <div className={styles.logo}>
+        <Layers size={40} color="var(--primary-color)" />
+        <div>
+            <h2>MiniERP</h2>
+            <small>Finance</small>
         </div>
-        <h2 style={{fontSize: '1.2rem', fontWeight: '800', letterSpacing: '-0.5px'}}>Mini ERP <span style={{color:'var(--primary-color)'}}>Finance</span></h2>
-        <small style={{opacity:0.6, fontSize:'0.75rem', textTransform: 'uppercase', letterSpacing: '1px'}}>Gestão Inteligente</small>
       </div>
 
       <nav className={styles.nav}>
-        <Link to="/pos" className={styles.link} style={{background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', marginBottom:'10px'}}>
-          <Monitor size={20} color="#4ade80"/> <span style={{color:'#4ade80', fontWeight:'bold'}}>Abrir PDV / Caixa</span>
-        </Link>
+        <NavLink to="/dashboard" end className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <LayoutDashboard size={20} />
+          <span>Visão Geral</span>
+        </NavLink>
 
-        <Link to="/dashboard" className={`${styles.link} ${isActive('/dashboard') ? styles.active : ''}`}>
-          <LayoutDashboard size={20} /> Visão Geral
-        </Link>
+        <NavLink to="/dashboard/transactions" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <ArrowRightLeft size={20} />
+          <span>Transações</span>
+        </NavLink>
+
+        <div style={{ margin: '10px 0 5px 15px', fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>
+          Gestão
+        </div>
+
+        <NavLink to="/dashboard/clients" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Users size={20} />
+          <span>Clientes</span>
+        </NavLink>
+
+        <NavLink to="/dashboard/products" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Box size={20} />
+          <span>Produtos</span>
+        </NavLink>
+
+        <NavLink to="/dashboard/suppliers" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Truck size={20} />
+          <span>Fornecedores</span>
+        </NavLink>
+
+        <NavLink to="/dashboard/stock-entries" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <ClipboardList size={20} />
+          <span>Entradas de Estoque</span>
+        </NavLink>
+
+        <div style={{ margin: '10px 0 5px 15px', fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>
+          Vendas & Serviços
+        </div>
+
+        <NavLink to="/dashboard/sales" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <ShoppingCart size={20} />
+          <span>Vendas</span>
+        </NavLink>
         
-        <Link to="/dashboard/pos-history" className={`${styles.link} ${isActive('/dashboard/pos-history') ? styles.active : ''}`}>
-          <History size={20} /> Histórico de Caixas
-        </Link>
+        <NavLink to="/pos" target="_blank" className={styles.link}>
+          <Monitor size={20} />
+          <span>PDV (Terminal)</span>
+        </NavLink>
 
-        <Link to="/dashboard/sales" className={`${styles.link} ${isActive('/dashboard/sales') ? styles.active : ''}`}>
-          <ShoppingCart size={20} /> Gestão de Vendas
-        </Link>
+        <NavLink to="/dashboard/pos-history" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <FileText size={20} />
+          <span>Histórico de Caixa</span>
+        </NavLink>
 
-        <Link to="/dashboard/pcp" className={`${styles.link} ${isActive('/dashboard/pcp') ? styles.active : ''}`}>
-          <Factory size={20} /> Fábrica / PCP
-        </Link>
+        <NavLink to="/dashboard/service-orders" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Briefcase size={20} />
+          <span>Ordens de Serviço</span>
+        </NavLink>
 
-        <Link to="/dashboard/hr" className={`${styles.link} ${isActive('/dashboard/hr') ? styles.active : ''}`}>
-          <Briefcase size={20} /> RH & Funcionários
-        </Link>
+        <NavLink to="/dashboard/quotes" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <FileText size={20} />
+          <span>Orçamentos</span>
+        </NavLink>
 
-        <Link to="/dashboard/quotes" className={`${styles.link} ${isActive('/dashboard/quotes') ? styles.active : ''}`}>
-          <FileText size={20} /> Orçamentos
-        </Link>
+        <NavLink to="/dashboard/recurring" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Repeat size={20} />
+          <span>Recorrência</span>
+        </NavLink>
 
-        <Link to="/dashboard/calendar" className={`${styles.link} ${isActive('/dashboard/calendar') ? styles.active : ''}`}>
-          <CalendarIcon size={20} /> Agenda
-        </Link>
+        <div style={{ margin: '10px 0 5px 15px', fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>
+          Corporativo
+        </div>
 
-        <Link to="/dashboard/tasks" className={`${styles.link} ${isActive('/dashboard/tasks') ? styles.active : ''}`}>
-          <CheckSquare size={20} /> Tarefas
-        </Link>
+        <NavLink to="/dashboard/hr" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Users size={20} />
+          <span>Recursos Humanos</span>
+        </NavLink>
 
-        <Link to="/dashboard/notifications" className={`${styles.link} ${isActive('/dashboard/notifications') ? styles.active : ''}`}>
-          <Bell size={20} /> Notificações
-        </Link>
+        {/* --- NOVO ITEM: FOLHA DE PAGAMENTO --- */}
+        <NavLink to="/dashboard/payroll" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <DollarSign size={20} />
+          <span>Folha de Pagamento</span>
+        </NavLink>
 
-        <Link to="/dashboard/transactions" className={`${styles.link} ${isActive('/dashboard/transactions') ? styles.active : ''}`}>
-          <Receipt size={20} /> Transações
-        </Link>
-        
-        <Link to="/dashboard/recurring" className={`${styles.link} ${isActive('/dashboard/recurring') ? styles.active : ''}`}>
-          <Repeat size={20} /> Recorrências
-        </Link>
+        <NavLink to="/dashboard/pcp" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Factory size={20} />
+          <span>PCP (Produção)</span>
+        </NavLink>
 
-        <Link to="/dashboard/products" className={`${styles.link} ${isActive('/dashboard/products') ? styles.active : ''}`}>
-          <Package size={20} /> Produtos e Serviços
-        </Link>
+        <NavLink to="/dashboard/reports" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <FileText size={20} />
+          <span>Relatórios</span>
+        </NavLink>
 
-        <Link to="/dashboard/stock-entries" className={`${styles.link} ${isActive('/dashboard/stock-entries') ? styles.active : ''}`}>
-          <PackagePlus size={20} /> Entrada de Estoque
-        </Link>
+        <NavLink to="/dashboard/calendar" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Calendar size={20} />
+          <span>Calendário</span>
+        </NavLink>
 
-        <Link to="/dashboard/suppliers" className={`${styles.link} ${isActive('/dashboard/suppliers') ? styles.active : ''}`}>
-          <Truck size={20} /> Fornecedores
-        </Link>
+        <div style={{ margin: '10px 0 5px 15px', fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>
+          Sistema
+        </div>
 
-        <Link to="/dashboard/clients" className={`${styles.link} ${isActive('/dashboard/clients') ? styles.active : ''}`}>
-          <Users size={20} /> Clientes
-        </Link>
-
-        <Link to="/dashboard/service-orders" className={`${styles.link} ${isActive('/dashboard/service-orders') ? styles.active : ''}`}>
-          <ClipboardList size={20} /> Ordens de Serviço
-        </Link>
-        
-        <Link to="/dashboard/reports" className={`${styles.link} ${isActive('/dashboard/reports') ? styles.active : ''}`}>
-          <BarChart3 size={20} /> Relatórios IA
-        </Link>
-
-        <div style={{borderTop:'1px solid rgba(255,255,255,0.1)', margin:'10px 0'}}></div>
-
-        <Link to="/dashboard/profile" className={`${styles.link} ${isActive('/dashboard/profile') ? styles.active : ''}`}>
-          <UserCircle size={20} /> Meu Perfil
-        </Link>
-
-        <Link to="/dashboard/audit" className={`${styles.link} ${isActive('/dashboard/audit') ? styles.active : ''}`}>
-          <Shield size={20} /> Auditoria
-        </Link>
-
-        <Link to="/dashboard/settings" className={`${styles.link} ${isActive('/dashboard/settings') ? styles.active : ''}`}>
-          <SettingsIcon size={20} /> Configurações
-        </Link>
-
-        {showInstallBtn && (
-            <button onClick={handleInstallClick} className={styles.link} style={{background: 'rgba(255,255,255,0.1)', border: '1px dashed rgba(255,255,255,0.3)', marginTop: '10px', cursor: 'pointer', width: '100%', textAlign: 'left'}}>
-                <Download size={20} /> Instalar App
-            </button>
+        {user?.isSuperAdmin && (
+          <NavLink to="/admin" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+            <ShieldCheck size={20} />
+            <span>Super Admin</span>
+          </NavLink>
         )}
+
+        <NavLink to="/dashboard/notifications" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Bell size={20} />
+          <span>Notificações</span>
+        </NavLink>
+
+        <NavLink to="/dashboard/audit" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <ShieldCheck size={20} />
+          <span>Auditoria</span>
+        </NavLink>
+
+        <NavLink to="/dashboard/settings" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Settings size={20} />
+          <span>Configurações</span>
+        </NavLink>
       </nav>
 
       <div className={styles.footer}>
-        <div style={{marginBottom: '10px', fontSize: '0.8rem', opacity: 0.7, textAlign: 'center'}}>
-          Logado como <strong>{user?.name?.split(' ')[0]}</strong>
-        </div>
         <button onClick={signOut} className={styles.logoutBtn}>
-          <LogOut size={18} /> Sair do Sistema
+          <LogOut size={20} />
+          <span>Sair da Conta</span>
         </button>
       </div>
     </aside>

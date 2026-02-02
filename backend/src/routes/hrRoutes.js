@@ -5,14 +5,38 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 router.use(authMiddleware);
 
-// Funcionários
-router.get('/employees', hrController.listEmployees);
+// --- COLABORADORES ---
+router.get('/employees', hrController.getEmployees);
 router.post('/employees', hrController.createEmployee);
 router.put('/employees/:id', hrController.updateEmployee);
 router.delete('/employees/:id', hrController.deleteEmployee);
 
-// Departamentos
-router.get('/departments', hrController.listDepartments);
+// --- DEPARTAMENTOS ---
+router.get('/departments', hrController.getDepartments);
 router.post('/departments', hrController.createDepartment);
+router.delete('/departments/:id', hrController.deleteDepartment);
+
+// --- CARGOS ---
+router.get('/positions', hrController.getPositions);
+router.post('/positions', hrController.createPosition);
+router.delete('/positions/:id', hrController.deletePosition);
+
+// --- RECRUTAMENTO ---
+router.get('/recruitment/openings', hrController.getJobOpenings);
+router.post('/recruitment/openings', hrController.createJobOpening);
+router.delete('/recruitment/openings/:id', hrController.deleteJobOpening);
+
+router.get('/recruitment/candidates', hrController.getCandidates);
+router.post('/recruitment/candidates', hrController.createCandidate);
+router.delete('/recruitment/candidates/:id', hrController.deleteCandidate);
+
+// --- DEMISSÕES ---
+router.get('/terminations', hrController.getTerminations);
+router.post('/terminations', hrController.createTermination);
+
+// --- FORMULÁRIOS & PRIVADOS (NOVO) ---
+router.get('/forms', hrController.getForms);
+router.post('/forms', hrController.createForm);
+router.delete('/forms/:id', hrController.deleteForm);
 
 module.exports = router;

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { ToastContext } from '../../context/ToastContext';
 import styles from './Login.module.css';
-import { Layers, Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
+import { Layers, Lock, Mail, ArrowRight, Loader2, User } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -31,16 +31,15 @@ export default function Login() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.overlay}></div> {/* Camada escura sobre a imagem */}
+      <div className={styles.overlay}></div>
       <div className={styles.card}>
         
-        {/* LOGO E TÍTULO ATUALIZADOS */}
         <div className={styles.header}>
             <div className={styles.logoIcon}>
                 <Layers size={32} color="white" />
             </div>
             <h2 className={styles.title}>MiniERP - <span style={{color:'var(--primary-color)'}}>Finance</span></h2>
-            <p className={styles.subtitle}>Acesse sua conta para continuar</p>
+            <p className={styles.subtitle}>Acesso Administrativo</p>
         </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
@@ -77,10 +76,29 @@ export default function Login() {
                 />
             </div>
           </div>
+          
           <button type="submit" className={styles.button} disabled={isLoading}>
             {isLoading ? <Loader2 className="spin" size={24} /> : <>Entrar na Plataforma <ArrowRight size={20} /></>}
           </button>
         </form>
+
+        {/* --- NOVO ATALHO PARA O PORTAL DO COLABORADOR --- */}
+        <div style={{marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #e5e7eb'}}>
+            <Link 
+                to="/portal/login" 
+                style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                    padding: '10px', borderRadius: '8px', backgroundColor: '#f1f5f9', 
+                    color: '#475569', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#e2e8f0'; }}
+                onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#f1f5f9'; }}
+            >
+                <User size={18} />
+                Acesso Portal do Colaborador
+            </Link>
+        </div>
+
         <div className={styles.footer}>
           Ainda não tem uma conta? <Link to="/register">Teste grátis por 7 dias</Link>
         </div>

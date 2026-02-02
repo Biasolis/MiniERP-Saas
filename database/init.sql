@@ -819,3 +819,160 @@ CREATE TABLE IF NOT EXISTS employees (
 
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_employees_tenant ON employees(tenant_id);
+
+-- ATUALIZAÇÃO MÓDULO RH (Execute no seu Banco de Dados)
+
+-- Tabela de Departamentos
+CREATE TABLE IF NOT EXISTS departments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    manager_name VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Cargos (Positions)
+CREATE TABLE IF NOT EXISTS positions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    base_salary DECIMAL(10, 2) DEFAULT 0.00,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Colaboradores (Employees)
+CREATE TABLE IF NOT EXISTS employees (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    cpf VARCHAR(20),
+    admission_date DATE,
+    department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
+    position_id UUID REFERENCES positions(id) ON DELETE SET NULL,
+    salary DECIMAL(10, 2),
+    status VARCHAR(50) DEFAULT 'active', -- active, inactive, vacation
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- --- ATUALIZAÇÃO RH - RECRUTAMENTO E DESLIGAMENTOS ---
+
+-- Tabela de Vagas (Job Openings)
+CREATE TABLE IF NOT EXISTS job_openings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
+    position_id UUID REFERENCES positions(id) ON DELETE SET NULL,
+    status VARCHAR(50) DEFAULT 'open', -- open, closed, on_hold
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Candidatos/Currículos (Candidates)
+CREATE TABLE IF NOT EXISTS candidates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    job_opening_id UUID REFERENCES job_openings(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    resume_link TEXT, -- Link para o arquivo (Drive, S3, ou upload local)
+    status VARCHAR(50) DEFAULT 'applied', -- applied, interviewing, hired, rejected
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Desligamentos (Terminations)
+CREATE TABLE IF NOT EXISTS terminations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    termination_date DATE NOT NULL,
+    reason TEXT,
+    type VARCHAR(50), -- voluntary (pedido demissão), involuntary (sem justa causa), cause (justa causa)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- --- ATUALIZAÇÃO RH - FORMULÁRIOS E PRIVADOS ---
+
+-- Tabela de Modelos de Formulários (HR Forms)
+CREATE TABLE IF NOT EXISTS hr_forms (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    is_private BOOLEAN DEFAULT FALSE, -- Se TRUE, apenas RH vê. Se FALSE, funcionários podem ver/responder
+    fields JSONB NOT NULL DEFAULT '[]', -- Estrutura do formulário (Perguntas, Tipos)
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Respostas de Formulários (HR Form Responses)
+CREATE TABLE IF NOT EXISTS hr_form_responses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    form_id UUID NOT NULL REFERENCES hr_forms(id) ON DELETE CASCADE,
+    employee_id UUID REFERENCES employees(id) ON DELETE SET NULL, -- Quem respondeu (se for interno)
+    respondent_name VARCHAR(255), -- Para externos ou anônimos
+    answers JSONB NOT NULL DEFAULT '{}', -- Respostas dadas
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- --- ATUALIZAÇÃO: FOLHA, PONTO E PORTAL DO COLABORADOR ---
+
+-- 1. Atualizar Tabela de Colaboradores (Adicionar Senha)
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_hours_daily DECIMAL(4,2) DEFAULT 8.00; -- Jornada padrão
+
+-- 2. Tabela de Registros de Ponto (Time Records)
+CREATE TABLE IF NOT EXISTS time_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    record_type VARCHAR(20) NOT NULL, -- entry (entrada), lunch_out (saída almoço), lunch_in (volta almoço), exit (saída)
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    location_coords VARCHAR(100), -- Latitude,Longitude (Opcional)
+    ip_address VARCHAR(50),
+    manual_entry BOOLEAN DEFAULT FALSE, -- Se foi ajustado pelo RH
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Tabela de Folha de Pagamento (Payrolls)
+CREATE TABLE IF NOT EXISTS payrolls (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    reference_date DATE NOT NULL, -- Ex: 2023-10-01 (Referente a Outubro)
+    base_salary DECIMAL(10, 2) NOT NULL,
+    total_additions DECIMAL(10, 2) DEFAULT 0.00, -- Horas extras, prêmios
+    total_deductions DECIMAL(10, 2) DEFAULT 0.00, -- INSS, IRRF, VT
+    net_salary DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(50) DEFAULT 'draft', -- draft, processed, paid
+    details JSONB DEFAULT '{}', -- Detalhamento dos cálculos
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Tabela de Benefícios
+CREATE TABLE IF NOT EXISTS benefits (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL, -- Vale Transporte, Plano de Saúde
+    cost_company DECIMAL(10, 2) DEFAULT 0.00,
+    cost_employee DECIMAL(10, 2) DEFAULT 0.00,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS time_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    record_type VARCHAR(20) NOT NULL, 
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    location_coords VARCHAR(100),
+    ip_address VARCHAR(50),
+    manual_entry BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
