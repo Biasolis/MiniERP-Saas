@@ -4,8 +4,6 @@ require('dotenv').config();
 let connectionString = process.env.DATABASE_URL;
 
 // --- GARANTIA DE SSL ---
-// Se for NeonDB e não tiver 'sslmode' na string, adicionamos.
-// Isso ajuda a forçar a negociação segura imediatamente.
 if (connectionString && connectionString.includes('neon.tech') && !connectionString.includes('sslmode')) {
     connectionString += '?sslmode=require';
 }
@@ -15,18 +13,23 @@ console.log('🔌 Tentando conectar em:', connectionString ? connectionString.sp
 const pool = new Pool({
   connectionString: connectionString,
   ssl: {
-    rejectUnauthorized: false, // Aceita o certificado do Neon
+    rejectUnauthorized: false,
   },
-  connectionTimeoutMillis: 10000, // Reduzi para 10s para falhar mais rápido se for bloqueio
+  connectionTimeoutMillis: 10000,
+  // --- CORREÇÃO DEFINITIVA DE TIMEZONE ---
+  // Isso força qualquer conexão deste pool a usar o fuso de SP nativamente
+  options: '-c timezone=America/Sao_Paulo' 
 });
 
-// --- TESTE DE CONEXÃO IMEDIATO (DIAGNÓSTICO) ---
+// --- TESTE DE CONEXÃO IMEDIATO ---
 pool.connect()
     .then(client => {
         console.log('✅ CONEXÃO COM O BANCO BEM SUCEDIDA!');
+        // Testamos o NOW() para ver se o Timezone pegou
         return client.query('SELECT NOW()')
             .then(res => {
-                console.log('⏰ Hora no Banco:', res.rows[0].now);
+                // Deve mostrar o horário -03:00
+                console.log('⏰ Hora no Banco (Brasília):', res.rows[0].now);
                 client.release();
             })
             .catch(e => {
@@ -37,20 +40,14 @@ pool.connect()
     .catch(err => {
         console.error('\n🔴 FALHA CRÍTICA DE CONEXÃO:');
         console.error(err.message);
-        console.error('------------------------------------------------');
-        console.error('DICA: Se você estiver em uma rede corporativa/VPN,');
-        console.error('a porta 5432 (PostgreSQL) pode estar bloqueada.');
-        console.error('Tente rotear a internet pelo 4G do celular para testar.');
-        console.error('------------------------------------------------\n');
     });
 
-// Listener de erros (evita crash)
+// Listener de erros
 pool.on('error', (err) => {
   console.error('❌ Erro inesperado no pool:', err.message);
 });
 
 const query = async (text, params) => {
-  const start = Date.now();
   try {
     const res = await pool.query(text, params);
     return res;

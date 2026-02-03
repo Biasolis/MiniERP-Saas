@@ -1,9 +1,8 @@
 import { useState, useEffect, useContext } from 'react';
 import { ToastContext } from '../../context/ToastContext';
 import api from '../../services/api';
-import { Clock, LogOut, Coffee, Calendar, Plus, Ticket, RefreshCw, X } from 'lucide-react';
+import { Clock, LogOut, Coffee, Calendar, Plus, Ticket, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import Modal from '../../components/ui/Modal'; // Se você tiver o componente Modal genérico, senão usamos um simples aqui
 
 export default function EmployeePanel() {
   const navigate = useNavigate();
@@ -17,12 +16,12 @@ export default function EmployeePanel() {
 
   // Estados Tickets
   const [tickets, setTickets] = useState([]);
+  const [categories, setCategories] = useState([]); // Armazena o cardápio de serviços
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
-  const [newTicket, setNewTicket] = useState({ title: '', description: '', category: 'rh' });
+  const [newTicket, setNewTicket] = useState({ title: '', description: '', category_id: '' });
   const [loadingTickets, setLoadingTickets] = useState(false);
 
   useEffect(() => {
-    // 1. Configura Token e Usuário
     const token = localStorage.getItem('employee_token');
     const storedUser = localStorage.getItem('employee_user');
 
@@ -31,17 +30,24 @@ export default function EmployeePanel() {
         return;
     }
 
-    // Força o header Authorization para garantir
+    // Configura o token para todas as requisições
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     
-    if (storedUser) setUser(JSON.parse(storedUser));
+    if (storedUser) {
+        try {
+            setUser(JSON.parse(storedUser));
+        } catch (e) {
+            console.error("Erro ao ler dados do usuário", e);
+        }
+    }
 
-    // 2. Relógio
+    // Relógio em tempo real
     const timer = setInterval(() => setTime(new Date()), 1000);
     
-    // 3. Carrega dados iniciais
+    // Carrega dados iniciais
     fetchTimesheet();
     fetchTickets();
+    fetchCategories(); // Busca as categorias disponíveis (RH, TI, etc)
 
     return () => clearInterval(timer);
   }, []);
@@ -68,24 +74,38 @@ export default function EmployeePanel() {
                 });
                 location = `${position.coords.latitude},${position.coords.longitude}`;
             } catch (e) {
-                console.warn("Geolocalização não permitida ou timeout");
+                console.warn("Geolocalização indisponível");
             }
         }
         await api.post('/portal/clockin', { record_type: type, location });
         addToast({ type: 'success', title: 'Sucesso', message: 'Ponto registrado!' });
         await fetchTimesheet(); 
     } catch (error) {
-        console.error(error);
-        addToast({ type: 'error', title: 'Erro', message: 'Falha ao registrar ponto.' });
+        addToast({ type: 'error', title: 'Erro', message: error.response?.data?.message || 'Falha ao registrar ponto.' });
     } finally {
         setLoading(false);
     }
   };
 
   // --- FUNÇÕES DE TICKET ---
+  
+  // Busca Categorias do Backend (preenche o select)
+  const fetchCategories = async () => {
+      try {
+          const res = await api.get('/portal/categories');
+          setCategories(res.data);
+          // Se houver categorias, define a primeira como padrão para facilitar
+          if(res.data && res.data.length > 0) {
+              setNewTicket(prev => ({ ...prev, category_id: res.data[0].id }));
+          }
+      } catch (error) {
+          console.error("Erro ao carregar categorias", error);
+      }
+  };
+
+  // Busca Tickets do Colaborador
   const fetchTickets = async () => {
       try {
-          // Endpoint que retorna os tickets deste usuário
           const res = await api.get('/portal/tickets');
           setTickets(res.data);
       } catch (error) {
@@ -93,30 +113,38 @@ export default function EmployeePanel() {
       }
   };
 
+  // Cria novo Ticket
   const handleCreateTicket = async (e) => {
       e.preventDefault();
+      
+      if (!newTicket.category_id) {
+          addToast({ type: 'error', title: 'Atenção', message: 'Selecione uma categoria/departamento.' });
+          return;
+      }
+
       setLoadingTickets(true);
       try {
           await api.post('/portal/tickets', newTicket);
-          addToast({ type: 'success', title: 'Ticket aberto!' });
+          addToast({ type: 'success', title: 'Sucesso', message: 'Chamado aberto!' });
           setIsTicketModalOpen(false);
-          setNewTicket({ title: '', description: '', category: 'rh' });
+          // Reseta form mantendo a categoria selecionada ou a padrão
+          setNewTicket({ title: '', description: '', category_id: categories[0]?.id || '' });
           fetchTickets();
       } catch (error) {
-          addToast({ type: 'error', title: 'Erro ao abrir ticket.' });
+          addToast({ type: 'error', title: 'Erro', message: error.response?.data?.error || 'Erro ao abrir ticket.' });
       } finally {
           setLoadingTickets(false);
       }
   };
 
-  // --- LOGOUT ---
   const handleLogout = () => {
       localStorage.removeItem('employee_token');
       localStorage.removeItem('employee_user');
       navigate('/portal/login');
   };
 
-  // --- ESTILOS ---
+  // --- RENDERIZAÇÃO ---
+
   const btnStyle = (color) => ({
     background: color, color: 'white', border: 'none', padding: '20px', borderRadius: '12px', 
     fontWeight: 'bold', fontSize: '1.1rem', cursor: loading ? 'not-allowed' : 'pointer', 
@@ -125,21 +153,31 @@ export default function EmployeePanel() {
   });
 
   const getStatusBadge = (status) => {
-      const colors = { 
-          'open': {bg:'#e0f2fe', color:'#0369a1', label:'Aberto'}, 
-          'in_progress': {bg:'#fff7ed', color:'#c2410c', label:'Em Andamento'},
-          'closed': {bg:'#dcfce7', color:'#15803d', label:'Concluído'} 
+      const config = { 
+          'open': { bg: '#e0f2fe', color: '#0369a1', label: 'Aberto' }, 
+          'in_progress': { bg: '#fff7ed', color: '#c2410c', label: 'Em Andamento' },
+          'closed': { bg: '#dcfce7', color: '#15803d', label: 'Concluído' },
+          'resolved': { bg: '#dcfce7', color: '#15803d', label: 'Resolvido' }
       };
-      const curr = colors[status] || colors['open'];
-      return <span style={{backgroundColor:curr.bg, color:curr.color, padding:'4px 10px', borderRadius:'12px', fontSize:'0.75rem', fontWeight:'bold'}}>{curr.label}</span>;
+      const curr = config[status] || config['open'];
+      return (
+          <span style={{
+              backgroundColor: curr.bg, color: curr.color, 
+              padding: '4px 10px', borderRadius: '12px', 
+              fontSize: '0.75rem', fontWeight: 'bold', textTransform: 'uppercase'
+          }}>
+              {curr.label}
+          </span>
+      );
   };
 
   return (
-    <div style={{minHeight:'100vh', background:'#f1f5f9', padding:'2rem'}}>
+    <div style={{minHeight:'100vh', background:'#f1f5f9', padding:'2rem', fontFamily:'Inter, sans-serif'}}>
+      
       {/* HEADER */}
       <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'2rem', background:'white', padding:'15px 25px', borderRadius:'12px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)'}}>
         <div>
-            <h2 style={{color:'#1e293b', margin:0}}>Olá, {user.name || 'Colaborador'}</h2>
+            <h2 style={{color:'#1e293b', margin:0, fontSize:'1.5rem'}}>Olá, {user.name || 'Colaborador'}</h2>
             <small style={{color:'#64748b'}}>Portal do Colaborador</small>
         </div>
         <button onClick={handleLogout} style={{background:'#fee2e2', border:'none', color:'#ef4444', padding:'8px 16px', borderRadius:'8px', cursor:'pointer', display:'flex', gap:'5px', alignItems:'center', fontWeight:'600'}}>
@@ -147,16 +185,16 @@ export default function EmployeePanel() {
         </button>
       </header>
 
-      {/* GRID PRINCIPAL (Ponto Esquerda | Espelho Direita) */}
+      {/* GRID PRINCIPAL */}
       <div style={{display:'grid', gridTemplateColumns:'1fr 2fr', gap:'2rem', marginBottom:'2rem'}}>
         
-        {/* COLUNA 1: RELÓGIO */}
+        {/* COLUNA 1: RELÓGIO E AÇÕES */}
         <div style={{display:'flex', flexDirection:'column', gap:'20px'}}>
             <div style={{background:'white', padding:'2rem', borderRadius:'16px', boxShadow:'0 4px 6px rgba(0,0,0,0.05)', textAlign:'center'}}>
-                <div style={{fontSize:'3.5rem', fontWeight:'800', color:'#1e293b', lineHeight: 1}}>
+                <div style={{fontSize:'3.5rem', fontWeight:'800', color:'#1e293b', lineHeight: 1, letterSpacing:'-2px'}}>
                     {time.toLocaleTimeString()}
                 </div>
-                <div style={{color:'#64748b', marginTop:'5px', fontSize:'1.1rem'}}>
+                <div style={{color:'#64748b', marginTop:'5px', fontSize:'1.1rem', fontWeight:'500'}}>
                     {time.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long'})}
                 </div>
             </div>
@@ -237,31 +275,32 @@ export default function EmployeePanel() {
                   </h3>
                   <small style={{color:'#64748b'}}>Solicitações para RH, TI ou Manutenção</small>
               </div>
-              <button onClick={() => setIsTicketModalOpen(true)} style={{background:'#3b82f6', color:'white', border:'none', padding:'10px 20px', borderRadius:'8px', cursor:'pointer', fontWeight:'600', display:'flex', alignItems:'center', gap:'8px'}}>
+              <button onClick={() => setIsTicketModalOpen(true)} style={{background:'#3b82f6', color:'white', border:'none', padding:'10px 20px', borderRadius:'8px', cursor:'pointer', fontWeight:'600', display:'flex', alignItems:'center', gap:'8px', boxShadow:'0 2px 4px rgba(59, 130, 246, 0.3)'}}>
                   <Plus size={18}/> Novo Chamado
               </button>
           </div>
 
           <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:'20px'}}>
               {tickets.length === 0 && (
-                  <div style={{gridColumn:'1/-1', textAlign:'center', padding:'30px', color:'#94a3b8', border:'1px dashed #e2e8f0', borderRadius:'12px'}}>
-                      Nenhum chamado aberto.
+                  <div style={{gridColumn:'1/-1', textAlign:'center', padding:'40px', color:'#94a3b8', border:'1px dashed #e2e8f0', borderRadius:'12px', background:'#f8fafc'}}>
+                      Nenhum chamado aberto. Clique em "Novo Chamado" para começar.
                   </div>
               )}
               {tickets.map(ticket => (
-                  <div key={ticket.id} onClick={() => navigate(`/portal/ticket/${ticket.id}`)} style={{border:'1px solid #e2e8f0', borderRadius:'12px', padding:'15px', cursor:'pointer', transition:'0.2s', background:'white'}}>
-                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'start', marginBottom:'10px'}}>
-                          <span style={{fontSize:'0.8rem', fontWeight:'bold', color:'#64748b', textTransform:'uppercase', background:'#f1f5f9', padding:'2px 8px', borderRadius:'4px'}}>
-                              {ticket.category}
+                  <div key={ticket.id} onClick={() => navigate(`/portal/ticket/${ticket.id}`)} style={{border:'1px solid #e2e8f0', borderRadius:'12px', padding:'15px', cursor:'pointer', transition:'all 0.2s', background:'white', boxShadow:'0 2px 4px rgba(0,0,0,0.02)'}}>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                          <span style={{fontSize:'0.75rem', fontWeight:'700', color:'#64748b', textTransform:'uppercase', background:'#f1f5f9', padding:'3px 8px', borderRadius:'6px'}}>
+                              {ticket.category_name || 'Geral'}
                           </span>
                           {getStatusBadge(ticket.status)}
                       </div>
-                      <h4 style={{margin:'0 0 5px 0', color:'#1e293b'}}>{ticket.title}</h4>
-                      <p style={{margin:0, color:'#64748b', fontSize:'0.9rem', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden'}}>
+                      <h4 style={{margin:'0 0 5px 0', color:'#1e293b', fontSize:'1rem'}}>{ticket.title || ticket.subject}</h4>
+                      <p style={{margin:0, color:'#64748b', fontSize:'0.9rem', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden', lineHeight:'1.4'}}>
                           {ticket.description}
                       </p>
-                      <div style={{marginTop:'10px', paddingTop:'10px', borderTop:'1px solid #f1f5f9', fontSize:'0.8rem', color:'#94a3b8'}}>
-                          Aberto em {new Date(ticket.created_at).toLocaleDateString()}
+                      <div style={{marginTop:'12px', paddingTop:'12px', borderTop:'1px solid #f1f5f9', fontSize:'0.8rem', color:'#94a3b8', display:'flex', justifyContent:'space-between'}}>
+                          <span>#{ticket.id}</span>
+                          <span>{new Date(ticket.created_at).toLocaleDateString('pt-BR')}</span>
                       </div>
                   </div>
               ))}
@@ -270,11 +309,11 @@ export default function EmployeePanel() {
 
       {/* MODAL NOVO TICKET */}
       {isTicketModalOpen && (
-          <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:1000}}>
-              <div style={{background:'white', width:'90%', maxWidth:'500px', borderRadius:'12px', padding:'25px', boxShadow:'0 20px 25px -5px rgba(0,0,0,0.1)'}}>
+          <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:1000, backdropFilter:'blur(2px)'}}>
+              <div style={{background:'white', width:'90%', maxWidth:'500px', borderRadius:'16px', padding:'25px', boxShadow:'0 20px 25px -5px rgba(0,0,0,0.1)', animation:'fadeIn 0.2s ease-out'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
-                      <h3 style={{margin:0}}>Novo Chamado</h3>
-                      <button onClick={() => setIsTicketModalOpen(false)} style={{background:'transparent', border:'none', cursor:'pointer', color:'#64748b'}}><X size={20}/></button>
+                      <h3 style={{margin:0, color:'#1e293b'}}>Novo Chamado</h3>
+                      <button onClick={() => setIsTicketModalOpen(false)} style={{background:'transparent', border:'none', cursor:'pointer', color:'#94a3b8', padding:'5px'}}><X size={20}/></button>
                   </div>
                   
                   <form onSubmit={handleCreateTicket}>
@@ -283,35 +322,40 @@ export default function EmployeePanel() {
                           <input required 
                               value={newTicket.title} onChange={e => setNewTicket({...newTicket, title: e.target.value})}
                               placeholder="Ex: Erro no Holerite, Computador Lento..."
-                              style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem'}} 
+                              style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem', outline:'none'}} 
                           />
                       </div>
                       
                       <div style={{marginBottom:'15px'}}>
-                          <label style={{display:'block', marginBottom:'5px', fontWeight:'600', fontSize:'0.9rem', color:'#475569'}}>Departamento</label>
+                          <label style={{display:'block', marginBottom:'5px', fontWeight:'600', fontSize:'0.9rem', color:'#475569'}}>Departamento / Serviço</label>
                           <select 
-                              value={newTicket.category} onChange={e => setNewTicket({...newTicket, category: e.target.value})}
-                              style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem', background:'white'}}
+                              value={newTicket.category_id} onChange={e => setNewTicket({...newTicket, category_id: e.target.value})}
+                              style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem', background:'white', outline:'none'}}
+                              required
                           >
-                              <option value="rh">Recursos Humanos (RH)</option>
-                              <option value="ti">Tecnologia (TI)</option>
-                              <option value="manutencao">Manutenção / Predial</option>
-                              <option value="operacional">Operacional</option>
+                              <option value="">Selecione uma opção...</option>
+                              {categories.length > 0 ? (
+                                  categories.map(cat => (
+                                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                  ))
+                              ) : (
+                                  <option disabled>Nenhum departamento cadastrado. Contate o RH.</option>
+                              )}
                           </select>
                       </div>
 
-                      <div style={{marginBottom:'20px'}}>
+                      <div style={{marginBottom:'25px'}}>
                           <label style={{display:'block', marginBottom:'5px', fontWeight:'600', fontSize:'0.9rem', color:'#475569'}}>Descrição Detalhada</label>
                           <textarea required rows="4"
                               value={newTicket.description} onChange={e => setNewTicket({...newTicket, description: e.target.value})}
                               placeholder="Descreva o que está acontecendo..."
-                              style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem', resize:'vertical'}} 
+                              style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem', resize:'vertical', outline:'none'}} 
                           />
                       </div>
 
                       <div style={{display:'flex', gap:'10px', justifyContent:'flex-end'}}>
                           <button type="button" onClick={() => setIsTicketModalOpen(false)} style={{padding:'10px 20px', borderRadius:'8px', border:'1px solid #cbd5e1', background:'white', cursor:'pointer', fontWeight:'600', color:'#475569'}}>Cancelar</button>
-                          <button type="submit" disabled={loadingTickets} style={{padding:'10px 20px', borderRadius:'8px', border:'none', background:'#3b82f6', cursor:'pointer', fontWeight:'600', color:'white', opacity: loadingTickets ? 0.7 : 1}}>
+                          <button type="submit" disabled={loadingTickets} style={{padding:'10px 20px', borderRadius:'8px', border:'none', background:'#3b82f6', cursor:'pointer', fontWeight:'600', color:'white', opacity: loadingTickets ? 0.7 : 1, minWidth:'120px'}}>
                               {loadingTickets ? 'Enviando...' : 'Abrir Chamado'}
                           </button>
                       </div>
@@ -319,6 +363,10 @@ export default function EmployeePanel() {
               </div>
           </div>
       )}
+      
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+      `}</style>
     </div>
   );
 }

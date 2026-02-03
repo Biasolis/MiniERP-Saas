@@ -31,7 +31,7 @@ const hrRoutes = require('./routes/hrRoutes');
 const payrollRoutes = require('./routes/payrollRoutes');
 const employeePortalRoutes = require('./routes/employeePortalRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
-// const ticketRoutes = require('./routes/ticketRoutes'); 
+const ticketRoutes = require('./routes/ticketRoutes'); 
 
 const app = express();
 
@@ -89,7 +89,7 @@ app.use('/api/hr', hrRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/portal', employeePortalRoutes);
-// app.use('/api/tickets', ticketRoutes);
+app.use('/api/tickets', ticketRoutes);
 
 // Rota de Health Check
 app.get('/health', (req, res) => {

@@ -5,28 +5,37 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 router.use(authMiddleware);
 
-// --- Configurações (Admin) ---
-// Frontend chama: GET /api/tickets/config
+// --- 1. CONFIGURAÇÕES (Admin) ---
+// GET /api/tickets/config
 router.get('/config', ticketController.getConfig); 
-// Frontend chama: PUT /api/tickets/config (ou POST)
-router.post('/config', ticketController.saveConfig);
-router.put('/config', ticketController.saveConfig);
+// POST /api/tickets/config
+router.post('/config', ticketController.saveConfig); 
 
-// --- Categorias ---
-// Frontend chama: GET /api/tickets/admin/categories
+// --- 2. CATEGORIAS ---
+// GET /api/tickets/admin/categories
 router.get('/admin/categories', ticketController.getCategories);
+// POST /api/tickets/categories (Atende o handleAddCategory do front)
+router.post('/categories', ticketController.createCategory); 
+// POST /api/tickets/admin/categories (Alias de segurança)
 router.post('/admin/categories', ticketController.createCategory);
+// DELETE
 router.delete('/admin/categories/:id', ticketController.deleteCategory);
 
-// --- Usuários (Agents) ---
-// Frontend chama: GET /api/tickets/users
-router.get('/users', ticketController.getUsers);
+// --- 3. USUÁRIOS / CLIENTES DE SUPORTE ---
+// GET /api/tickets/users (Atende loadUsers do front)
+// Mapeado para getSupportUsers pois o front lista clientes cadastrados
+router.get('/users', ticketController.getSupportUsers);
+// POST /api/tickets/users (Atende handleAddSupportUser do front)
+router.post('/users', ticketController.createSupportUser);
 
-// --- Operação Tickets ---
+// --- 4. AGENTES INTERNOS (Opcional, se precisar no futuro) ---
+router.get('/agents', ticketController.getAgents);
+
+// --- 5. OPERAÇÃO DE TICKETS ---
 router.get('/', ticketController.getTickets);
 router.post('/', ticketController.createTicket);
 router.get('/:id', ticketController.getTicketDetails);
-router.post('/:ticketId/messages', ticketController.addMessage); // Atenção ao nome do param
+router.post('/:ticketId/messages', ticketController.addMessage);
 router.patch('/:id/status', ticketController.updateStatus);
 
 module.exports = router;

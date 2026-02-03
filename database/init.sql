@@ -454,3 +454,13 @@ CREATE INDEX IF NOT EXISTS idx_tickets_tenant ON tickets(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_employees_tenant ON employees(tenant_id);
 
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+
+-- Adiciona colunas faltantes na tabela helpdesk_config
+ALTER TABLE helpdesk_config
+ADD COLUMN IF NOT EXISTS support_email VARCHAR(255),
+ADD COLUMN IF NOT EXISTS auto_assign BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS allow_guest_tickets BOOLEAN DEFAULT FALSE;
+
+-- Garante que a tabela de categorias tenha o campo de SLA (caso também falte)
+ALTER TABLE ticket_categories
+ADD COLUMN IF NOT EXISTS sla_hours INTEGER DEFAULT 24;
