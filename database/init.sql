@@ -562,3 +562,17 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- Adiciona a coluna 'operation' (INSERT, UPDATE, DELETE)
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS operation TEXT;
+
+-- Adiciona outras colunas essenciais que também podem estar faltando
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS record_id TEXT;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS old_data JSONB;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS new_data JSONB;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS changed_by TEXT;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS table_name TEXT;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id INTEGER;
+
+-- (Opcional) Se a coluna 'action' existir (legado), renomeia ou remove para não confundir
+-- ALTER TABLE audit_logs DROP COLUMN IF EXISTS action;

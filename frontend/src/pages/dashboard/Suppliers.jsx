@@ -3,7 +3,7 @@ import api from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
-import styles from './Suppliers.module.css'; // <--- Importa o CSS
+import styles from './Suppliers.module.css';
 import { Plus, Search, Edit, Trash2, Truck, Check } from 'lucide-react';
 
 export default function Suppliers() {
@@ -13,26 +13,35 @@ export default function Suppliers() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
-    // Estado para controlar o loading do botão de salvar
     const [saving, setSaving] = useState(false);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editing, setEditing] = useState(null);
     const [formData, setFormData] = useState({ name: '', cnpj_cpf: '', email: '', phone: '', address: '' });
 
-    useEffect(() => { loadSuppliers(); }, []);
+    useEffect(() => { 
+        loadSuppliers(); 
+    }, []);
 
+    // Filtro local: Nome, Código ou Documento
     useEffect(() => {
         const lower = searchTerm.toLowerCase();
-        setFiltered(suppliers.filter(s => s.name.toLowerCase().includes(lower)));
+        setFiltered(suppliers.filter(s => 
+            s.name.toLowerCase().includes(lower) || 
+            (s.code && s.code.includes(lower)) ||
+            (s.cnpj_cpf && s.cnpj_cpf.includes(lower))
+        ));
     }, [searchTerm, suppliers]);
 
     async function loadSuppliers() {
         try {
             const res = await api.get('/suppliers');
             setSuppliers(res.data);
-        } catch (e) { addToast({ type: 'error', title: 'Erro ao carregar fornecedores' }); }
-        finally { setLoading(false); }
+        } catch (e) { 
+            addToast({ type: 'error', title: 'Erro ao carregar fornecedores' }); 
+        } finally { 
+            setLoading(false); 
+        }
     }
 
     const handleOpenModal = (sup = null) => {
@@ -59,7 +68,7 @@ export default function Suppliers() {
             if (editing) await api.put(`/suppliers/${editing.id}`, formData);
             else await api.post('/suppliers', formData);
             
-            addToast({ type: 'success', title: 'Salvo com sucesso!' });
+            addToast({ type: 'success', title: 'Sucesso', message: 'Fornecedor salvo!' });
             setIsModalOpen(false);
             loadSuppliers();
         } catch (e) { 
@@ -70,13 +79,13 @@ export default function Suppliers() {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm('Excluir fornecedor?')) return;
+        if (!confirm('Deseja excluir este fornecedor?')) return;
         try {
             await api.delete(`/suppliers/${id}`);
             addToast({ type: 'success', title: 'Removido!' });
             loadSuppliers();
         } catch (e) { 
-            addToast({ type: 'error', title: e.response?.data?.message || 'Erro ao remover.' }); 
+            addToast({ type: 'error', title: 'Erro', message: e.response?.data?.message || 'Erro ao remover.' }); 
         }
     };
 
@@ -84,7 +93,10 @@ export default function Suppliers() {
         <DashboardLayout>
             <div className={styles.container}>
                 <div className={styles.header}>
-                    <h2>Fornecedores</h2>
+                    <div>
+                        <h2 style={{margin:0}}>Fornecedores</h2>
+                        <p style={{margin:0, color:'#6b7280', fontSize:'0.9rem'}}>Gerencie seus parceiros comerciais</p>
+                    </div>
                     <button onClick={() => handleOpenModal()} className={styles.btnPrimary}>
                         <Plus size={20}/> Novo Fornecedor
                     </button>
@@ -94,7 +106,7 @@ export default function Suppliers() {
                     <div className={styles.searchBox}>
                         <Search size={18} color="#9ca3af" />
                         <input 
-                            placeholder="Buscar fornecedor..." 
+                            placeholder="Buscar por nome, código ou CNPJ..." 
                             value={searchTerm} 
                             onChange={e => setSearchTerm(e.target.value)} 
                         />
@@ -106,7 +118,8 @@ export default function Suppliers() {
                         <table className={styles.table}>
                             <thead>
                                 <tr>
-                                    <th>Nome</th>
+                                    <th style={{width:'80px'}}>Cód.</th>
+                                    <th>Nome / Razão Social</th>
                                     <th>Documento</th>
                                     <th>Contato</th>
                                     <th>Ações</th>
@@ -116,11 +129,15 @@ export default function Suppliers() {
                                 {filtered.map(s => (
                                     <tr key={s.id}>
                                         <td>
+                                            {/* Exibe o código gerado */}
+                                            <strong style={{color:'#059669'}}>#{s.code || '---'}</strong>
+                                        </td>
+                                        <td>
                                             <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-                                                <div style={{background:'#f3f4f6', padding:'8px', borderRadius:'50%'}}>
-                                                    <Truck size={16} color="#6b7280"/>
+                                                <div style={{background:'#f0fdf4', padding:'8px', borderRadius:'50%'}}>
+                                                    <Truck size={16} color="#16a34a"/>
                                                 </div>
-                                                <strong>{s.name}</strong>
+                                                <span style={{fontWeight:'600', color:'#374151'}}>{s.name}</span>
                                             </div>
                                         </td>
                                         <td>{s.cnpj_cpf || '-'}</td>
@@ -142,7 +159,7 @@ export default function Suppliers() {
                                 ))}
                                 {filtered.length === 0 && (
                                     <tr>
-                                        <td colSpan="4" style={{textAlign:'center', padding:'20px', color:'#9ca3af'}}>
+                                        <td colSpan="5" style={{textAlign:'center', padding:'30px', color:'#9ca3af'}}>
                                             Nenhum fornecedor encontrado.
                                         </td>
                                     </tr>
@@ -158,17 +175,18 @@ export default function Suppliers() {
                 <form onSubmit={handleSave}>
                     <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
                         <div>
-                            <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem'}}>Nome / Razão Social</label>
+                            <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem', color:'#374151'}}>Nome / Razão Social</label>
                             <input 
                                 className={styles.input} 
                                 value={formData.name} 
                                 onChange={e => setFormData({...formData, name: e.target.value})} 
                                 required 
+                                placeholder="Ex: Distribuidora XYZ"
                             />
                         </div>
                         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px'}}>
                             <div>
-                                <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem'}}>CPF / CNPJ</label>
+                                <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem', color:'#374151'}}>CPF / CNPJ</label>
                                 <input 
                                     className={styles.input} 
                                     value={formData.cnpj_cpf} 
@@ -176,7 +194,7 @@ export default function Suppliers() {
                                 />
                             </div>
                             <div>
-                                <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem'}}>Telefone</label>
+                                <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem', color:'#374151'}}>Telefone</label>
                                 <input 
                                     className={styles.input} 
                                     value={formData.phone} 
@@ -185,7 +203,7 @@ export default function Suppliers() {
                             </div>
                         </div>
                         <div>
-                            <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem'}}>Email</label>
+                            <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem', color:'#374151'}}>Email</label>
                             <input 
                                 type="email"
                                 className={styles.input} 
@@ -194,7 +212,7 @@ export default function Suppliers() {
                             />
                         </div>
                         <div>
-                            <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem'}}>Endereço</label>
+                            <label style={{display:'block', marginBottom:'5px', fontWeight:'500', fontSize:'0.9rem', color:'#374151'}}>Endereço</label>
                             <input 
                                 className={styles.input} 
                                 value={formData.address} 
@@ -202,10 +220,12 @@ export default function Suppliers() {
                             />
                         </div>
                         
-                        {/* Botão limpo usando apenas classe CSS */}
-                        <button type="submit" className={styles.btnSave} disabled={saving}>
-                            {saving ? 'Salvando...' : <><Check size={18} /> Salvar Fornecedor</>}
-                        </button>
+                        <div style={{marginTop:'10px', display:'flex', justifyContent:'flex-end', gap:'10px'}}>
+                            <button type="button" onClick={() => setIsModalOpen(false)} style={{padding:'10px 20px', background:'white', border:'1px solid #ddd', borderRadius:'8px', cursor:'pointer', fontWeight:'500', color:'#374151'}}>Cancelar</button>
+                            <button type="submit" className={styles.btnSave} disabled={saving}>
+                                {saving ? 'Salvando...' : <><Check size={18} /> Salvar Cadastro</>}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </Modal>

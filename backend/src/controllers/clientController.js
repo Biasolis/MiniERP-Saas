@@ -2,23 +2,32 @@ const { query } = require('../config/db');
 
 // --- CLIENTES ---
 
-// Listar Clientes (Com contagem de projetos ativos)
-const listClients = async (req, res) => {
+// Listar Clientes (Com busca e contagem de projetos ativos)
+// Agora suporta ?search=... para buscar por nome, código ou email
+const getClients = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const { status } = req.query;
+        const { status, search } = req.query;
 
         let sql = `
-            SELECT c.id, c.name, c.email, c.phone, c.document, c.city, c.status, c.source, c.created_at,
+            SELECT c.id, c.name, c.email, c.phone, c.document, c.city, c.status, c.source, c.code, c.created_at,
             (SELECT COUNT(*) FROM client_projects cp WHERE cp.client_id = c.id AND cp.status != 'completed' AND cp.status != 'lost') as active_projects
             FROM clients c 
             WHERE c.tenant_id = $1
         `;
         const params = [tenantId];
 
+        // Filtro de Status
         if (status) {
             sql += ` AND c.status = $2`;
             params.push(status);
+        }
+
+        // Filtro de Busca (Nome, Código ou Email) - Usado no Autocomplete
+        if (search) {
+            const idx = params.length + 1;
+            sql += ` AND (c.name ILIKE $${idx} OR c.code ILIKE $${idx} OR c.email ILIKE $${idx})`;
+            params.push(`%${search}%`);
         }
 
         sql += ` ORDER BY c.name ASC`;
@@ -81,7 +90,7 @@ const getClientDetails = async (req, res) => {
     }
 };
 
-// Criar Cliente (Atualizado com Endereço Granular)
+// Criar Cliente (Com Geração de Código Automático)
 const createClient = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
@@ -93,20 +102,35 @@ const createClient = async (req, res) => {
 
         if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
 
-        // Monta endereço completo para compatibilidade com legados que usam campo 'address' único
+        // Monta endereço completo para compatibilidade
         const fullAddress = `${street || ''}, ${number || ''} - ${neighborhood || ''}`;
+
+        // Lógica de Geração de Código Único (5 Dígitos)
+        let code;
+        let isUnique = false;
+        // Tenta até 5 vezes gerar um código único para evitar loop infinito (teórico)
+        for (let i = 0; i < 5; i++) {
+            code = Math.floor(10000 + Math.random() * 90000).toString();
+            const check = await query('SELECT id FROM clients WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
+            if (check.rows.length === 0) {
+                isUnique = true;
+                break;
+            }
+        }
+        
+        if (!isUnique) return res.status(500).json({ error: 'Erro ao gerar código de cliente. Tente novamente.' });
 
         const sql = `
             INSERT INTO clients 
-            (tenant_id, name, email, phone, document, address, zip_code, street, number, complement, neighborhood, city, state, status, source, notes)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            (tenant_id, name, email, phone, document, address, zip_code, street, number, complement, neighborhood, city, state, status, source, notes, code)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             RETURNING *
         `;
         
         const result = await query(sql, [
             tenantId, name, email, phone, document, 
             fullAddress, zip_code, street, number, complement, neighborhood, city, state,
-            status || 'lead', source || 'other', notes
+            status || 'lead', source || 'other', notes, code
         ]);
 
         return res.status(201).json(result.rows[0]);
@@ -116,7 +140,7 @@ const createClient = async (req, res) => {
     }
 };
 
-// Atualizar Cliente (Atualizado com Endereço Granular)
+// Atualizar Cliente
 const updateClient = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
@@ -244,7 +268,7 @@ const deleteProject = async (req, res) => {
 };
 
 module.exports = { 
-    listClients, // Padronizei como listClients
+    getClients, // Padronizei como getClients para manter consistência com SupplierController
     getClientDetails, 
     createClient, 
     updateClient, 
