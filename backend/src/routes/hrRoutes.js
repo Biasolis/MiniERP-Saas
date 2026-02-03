@@ -34,9 +34,22 @@ router.delete('/recruitment/candidates/:id', hrController.deleteCandidate);
 router.get('/terminations', hrController.getTerminations);
 router.post('/terminations', hrController.createTermination);
 
-// --- FORMULÁRIOS & PRIVADOS (NOVO) ---
+// --- FORMULÁRIOS & PRIVADOS ---
 router.get('/forms', hrController.getForms);
 router.post('/forms', hrController.createForm);
 router.delete('/forms/:id', hrController.deleteForm);
+
+// --- GESTÃO DE PONTO (NOVO - AJUSTES DO RH) ---
+// Visualizar espelho de um funcionário específico
+router.get('/timesheet/:employeeId', hrController.getEmployeeTimesheet);
+
+// Adicionar batida manual (esquecimento)
+router.post('/timesheet/manual', hrController.addManualRecord);
+
+// Editar horário de uma batida
+router.put('/timesheet/:id', hrController.updateRecord);
+
+// Excluir batida (duplicidade/erro)
+router.delete('/timesheet/:id', hrController.deleteRecord);
 
 module.exports = router;

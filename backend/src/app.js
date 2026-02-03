@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken'); // <--- Necessário para ler o usuário do token
+const { query } = require('./config/db'); // <--- Necessário para setar a variável no banco
 require('dotenv').config();
 
 // Importação das Rotas
@@ -56,14 +58,43 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// =========================================================================
+// MIDDLEWARE DE AUDITORIA (O "Pulo do Gato")
+// =========================================================================
+// Intercepta o request, lê o token e avisa ao Postgres quem é o usuário.
+// Isso permite que os Triggers do banco gravem o nome/email correto no log.
+app.use(async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    
+    if (authHeader) {
+        try {
+            const token = authHeader.split(' ')[1];
+            // Decodifica para pegar o email (a validação de segurança real ocorre nas rotas)
+            const decoded = jwt.decode(token);
+            
+            if (decoded && (decoded.email || decoded.name)) {
+                const userIdentifier = decoded.email || decoded.name;
+                
+                // Define a variável de sessão 'app.current_user' no PostgreSQL
+                // O terceiro parâmetro 'false' indica que a variável vale para a transação atual
+                await query("SELECT set_config('app.current_user', $1, false)", [userIdentifier]);
+            }
+        } catch (e) {
+            // Se der erro aqui, não bloqueamos a requisição, apenas o log ficará sem usuário
+            // A segurança real é feita pelos middlewares de rota.
+            // console.warn("Auditoria: Não foi possível identificar usuário para log.", e.message);
+        }
+    }
+    next();
+});
+// =========================================================================
+
 // --- CONFIGURAÇÃO DE ROTAS ---
 
 app.use('/api/auth', authRoutes);
 
-// --- CORREÇÃO AQUI: Registrar singular E plural ---
 app.use('/api/tenants', tenantRoutes); // Para listas (Admin)
-app.use('/api/tenant', tenantRoutes);  // Para contexto da empresa logada (Configurações)
-// --------------------------------------------------
+app.use('/api/tenant', tenantRoutes);  // Para contexto da empresa logada
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/suppliers', supplierRoutes);

@@ -4,7 +4,8 @@ import { ToastContext } from '../../context/ToastContext';
 import api from '../../services/api';
 import { 
   Users, Briefcase, Building, Plus, Trash2, Edit2, 
-  FileText, UserMinus, Search, ExternalLink, ClipboardList, Lock, MinusCircle
+  FileText, UserMinus, Search, ExternalLink, ClipboardList, Lock, MinusCircle, 
+  Calendar, Clock, Save, X 
 } from 'lucide-react';
 
 export default function HumanResources() {
@@ -12,7 +13,7 @@ export default function HumanResources() {
   const { addToast } = useContext(ToastContext);
   const [loading, setLoading] = useState(true);
 
-  // Data States
+  // Data States Gerais
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -21,16 +22,22 @@ export default function HumanResources() {
   const [terminations, setTerminations] = useState([]);
   const [forms, setForms] = useState([]);
 
+  // Data States Ponto (Timesheet)
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [timesheet, setTimesheet] = useState([]);
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(new Date().getFullYear());
+
   // Form States
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [modalType, setModalType] = useState(''); 
 
-  // Form Data
+  // Form Data (Diversos)
   const [empData, setEmpData] = useState({ 
       name: '', email: '', phone: '', cpf: '', salary: '', 
       status: 'active', department_id: '', position_id: '', 
-      password: '' // Novo campo de senha
+      password: '', work_hours_daily: 8 // Adicionado carga horária
   });
   const [deptData, setDeptData] = useState({ name: '', manager_name: '' });
   const [posData, setPosData] = useState({ title: '', base_salary: '', description: '' });
@@ -38,22 +45,36 @@ export default function HumanResources() {
   const [candData, setCandData] = useState({ job_opening_id: '', name: '', email: '', phone: '', resume_link: '', status: 'applied', notes: '' });
   const [termData, setTermData] = useState({ employee_id: '', termination_date: new Date().toISOString().split('T')[0], reason: '', type: 'voluntary' });
   const [formData, setFormData] = useState({ title: '', description: '', is_private: false, fields: [] });
+  
+  // Form Data (Ponto)
+  const [pointData, setPointData] = useState({ date: '', time: '', type: 'entry' });
 
   useEffect(() => {
     fetchData();
   }, [activeTab]);
 
+  // Carrega ponto quando muda funcionário ou data (apenas na aba timesheet)
+  useEffect(() => {
+      if (activeTab === 'timesheet' && selectedEmployee) {
+          fetchTimesheet();
+      }
+  }, [selectedEmployee, month, year, activeTab]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [empRes, deptRes, posRes] = await Promise.all([
-        api.get('/hr/employees'),
-        api.get('/hr/departments'),
-        api.get('/hr/positions')
-      ]);
+      // Sempre carrega funcionários para selects
+      const empRes = await api.get('/hr/employees');
       setEmployees(empRes.data);
-      setDepartments(deptRes.data);
-      setPositions(posRes.data);
+
+      if (activeTab === 'employees' || activeTab === 'departments' || activeTab === 'positions') {
+          const [deptRes, posRes] = await Promise.all([
+            api.get('/hr/departments'),
+            api.get('/hr/positions')
+          ]);
+          setDepartments(deptRes.data);
+          setPositions(posRes.data);
+      }
 
       if (activeTab === 'recruitment') {
         const [jobsRes, candRes] = await Promise.all([
@@ -82,8 +103,17 @@ export default function HumanResources() {
     }
   };
 
+  const fetchTimesheet = async () => {
+      try {
+          const res = await api.get(`/hr/timesheet/${selectedEmployee}?month=${month}&year=${year}`);
+          setTimesheet(res.data);
+      } catch (e) {
+          addToast({ type: 'error', title: 'Erro', message: 'Erro ao carregar ponto' });
+      }
+  };
+
   const handleDelete = async (id, type) => {
-    if (!confirm('Tem certeza?')) return;
+    if (!confirm('Tem certeza que deseja excluir?')) return;
     try {
       let endpoint = '';
       if (type === 'employee') endpoint = `/hr/employees/${id}`;
@@ -92,10 +122,14 @@ export default function HumanResources() {
       if (type === 'opening') endpoint = `/hr/recruitment/openings/${id}`;
       if (type === 'candidate') endpoint = `/hr/recruitment/candidates/${id}`;
       if (type === 'form') endpoint = `/hr/forms/${id}`;
+      if (type === 'timesheet') endpoint = `/hr/timesheet/${id}`;
 
       await api.delete(endpoint);
       addToast({ type: 'success', title: 'Sucesso', message: 'Item removido' });
-      fetchData();
+      
+      if (type === 'timesheet') fetchTimesheet();
+      else fetchData();
+
     } catch (error) {
       addToast({ type: 'error', title: 'Erro', message: 'Erro ao remover' });
     }
@@ -114,6 +148,24 @@ export default function HumanResources() {
       if (modalType === 'candidate') { endpoint = '/hr/recruitment/candidates'; payload = candData; }
       if (modalType === 'termination') { endpoint = '/hr/terminations'; payload = termData; }
       if (modalType === 'form') { endpoint = '/hr/forms'; payload = formData; }
+      
+      // Lógica específica para Ponto
+      if (modalType === 'timesheet') {
+          if (editingItem) {
+              await api.put(`/hr/timesheet/${editingItem.id}`, { time: pointData.time, date: pointData.date });
+          } else {
+              await api.post('/hr/timesheet/manual', { 
+                  employee_id: selectedEmployee, 
+                  ...pointData, 
+                  reason: 'Ajuste Manual RH' 
+              });
+          }
+          addToast({ type: 'success', title: 'Sucesso', message: 'Ponto salvo' });
+          setShowModal(false);
+          setEditingItem(null);
+          fetchTimesheet();
+          return;
+      }
 
       if (editingItem && modalType !== 'termination' && modalType !== 'form') { 
         await api.put(`${endpoint}/${editingItem.id}`, payload);
@@ -136,16 +188,26 @@ export default function HumanResources() {
     setEditingItem(item);
     
     // Reset inputs
-    setEmpData({ name: '', email: '', phone: '', cpf: '', salary: '', status: 'active', department_id: '', position_id: '', password: '' });
+    setEmpData({ name: '', email: '', phone: '', cpf: '', salary: '', status: 'active', department_id: '', position_id: '', password: '', work_hours_daily: 8 });
     setDeptData({ name: '', manager_name: '' });
     setPosData({ title: '', base_salary: '', description: '' });
     setOpeningData({ title: '', description: '', department_id: '', position_id: '', status: 'open' });
     setCandData({ job_opening_id: '', name: '', email: '', phone: '', resume_link: '', status: 'applied', notes: '' });
     setTermData({ employee_id: '', termination_date: new Date().toISOString().split('T')[0], reason: '', type: 'voluntary' });
     setFormData({ title: '', description: '', is_private: false, fields: [] });
+    
+    // Reset Ponto
+    if (type === 'timesheet') {
+        if (item) {
+            setPointData({ date: item.date_str, time: item.time_str, type: item.record_type });
+        } else {
+            const defaultDate = `${year}-${String(month).padStart(2,'0')}-01`;
+            setPointData({ date: defaultDate, time: '08:00', type: 'entry' });
+        }
+    }
 
-    if (item) {
-      if (type === 'employee') setEmpData({ ...item, password: '' }); // Limpa senha ao editar para não mostrar hash
+    if (item && type !== 'timesheet') {
+      if (type === 'employee') setEmpData({ ...item, password: '' }); 
       if (type === 'department') setDeptData(item);
       if (type === 'position') setPosData(item);
       if (type === 'opening') setOpeningData(item);
@@ -184,7 +246,7 @@ export default function HumanResources() {
         <thead>
           <tr style={{borderBottom: '2px solid #e5e7eb', textAlign: 'left', color: '#6b7280'}}>
             <th style={{padding: '12px'}}>Nome</th>
-            <th style={{padding: '12px'}}>Cargo</th>
+            <th style={{padding: '12px'}}>Cargo/Depto</th>
             <th style={{padding: '12px'}}>Status</th>
             <th style={{padding: '12px', textAlign: 'right'}}>Ações</th>
           </tr>
@@ -220,7 +282,91 @@ export default function HumanResources() {
     </div>
   );
 
-  const renderRecruitment = () => (
+  const renderTimesheet = () => {
+      // Agrupa registros por dia
+      const grouped = timesheet.reduce((acc, rec) => {
+          if (!acc[rec.date_str]) acc[rec.date_str] = [];
+          acc[rec.date_str].push(rec);
+          return acc;
+      }, {});
+      const sortedDays = Object.keys(grouped).sort();
+
+      return (
+          <div style={{display:'grid', gridTemplateColumns:'250px 1fr', gap:'20px'}}>
+              {/* LISTA DE SELEÇÃO */}
+              <div style={{background:'white', padding:'15px', borderRadius:'12px', border:'1px solid #e5e7eb', height:'calc(100vh - 200px)', overflowY:'auto'}}>
+                  <h3 style={{fontSize:'1rem', marginBottom:'10px', color:'#374151'}}>Selecione:</h3>
+                  {employees.map(emp => (
+                      <div key={emp.id} onClick={() => setSelectedEmployee(emp.id)}
+                           style={{
+                               padding:'10px', borderRadius:'8px', cursor:'pointer', marginBottom:'5px',
+                               background: selectedEmployee === emp.id ? '#eff6ff' : 'transparent',
+                               color: selectedEmployee === emp.id ? '#2563eb' : '#4b5563',
+                               fontWeight: selectedEmployee === emp.id ? '600' : 'normal'
+                           }}>
+                          {emp.name}
+                      </div>
+                  ))}
+              </div>
+
+              {/* ÁREA DE ESPELHO */}
+              <div style={{background:'white', padding:'20px', borderRadius:'12px', border:'1px solid #e5e7eb', height:'calc(100vh - 200px)', display:'flex', flexDirection:'column'}}>
+                  {selectedEmployee ? (
+                      <>
+                          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px', borderBottom:'1px solid #f3f4f6', paddingBottom:'10px'}}>
+                              <div style={{display:'flex', gap:'10px'}}>
+                                  <select value={month} onChange={e => setMonth(e.target.value)} style={inputStyle}>
+                                      {[...Array(12)].map((_,i) => <option key={i} value={i+1}>{new Date(0, i).toLocaleString('pt-BR',{month:'long'})}</option>)}
+                                  </select>
+                                  <select value={year} onChange={e => setYear(e.target.value)} style={inputStyle}>
+                                      <option value="2025">2025</option>
+                                      <option value="2026">2026</option>
+                                  </select>
+                              </div>
+                              <button onClick={() => openModal('timesheet')} className="btn-primary"><Plus size={16}/> Adicionar Batida</button>
+                          </div>
+
+                          <div style={{overflowY:'auto', flex:1}}>
+                              {sortedDays.length === 0 ? <p style={{textAlign:'center', color:'#999'}}>Sem registros.</p> : (
+                                  <table style={{width:'100%', borderCollapse:'collapse'}}>
+                                      <thead>
+                                          <tr style={{textAlign:'left', color:'#6b7280', fontSize:'0.9rem'}}><th style={{padding:'10px'}}>Data</th><th style={{padding:'10px'}}>Registros</th></tr>
+                                      </thead>
+                                      <tbody>
+                                          {sortedDays.map(day => (
+                                              <tr key={day} style={{borderBottom:'1px solid #f9fafb'}}>
+                                                  <td style={{padding:'10px', verticalAlign:'top', width:'120px'}}>
+                                                      <strong>{new Date(day + "T00:00:00").toLocaleDateString('pt-BR')}</strong><br/>
+                                                      <small style={{color:'#9ca3af'}}>{new Date(day + "T00:00:00").toLocaleDateString('pt-BR',{weekday:'short'})}</small>
+                                                  </td>
+                                                  <td style={{padding:'10px'}}>
+                                                      <div style={{display:'flex', flexWrap:'wrap', gap:'8px'}}>
+                                                          {grouped[day].map(rec => (
+                                                              <div key={rec.id} style={{display:'flex', alignItems:'center', background:'#f3f4f6', padding:'4px 10px', borderRadius:'15px', border:'1px solid #e5e7eb'}}>
+                                                                  <span style={{fontWeight:'bold', marginRight:'5px'}}>{rec.time_str}</span>
+                                                                  <small style={{textTransform:'uppercase', fontSize:'0.7rem', color:'#6b7280'}}>
+                                                                      {rec.record_type === 'lunch_out' ? 'S.Almoço' : rec.record_type === 'lunch_in' ? 'V.Almoço' : rec.record_type === 'entry' ? 'Entrada' : 'Saída'}
+                                                                  </small>
+                                                                  <button onClick={() => openModal('timesheet', rec)} style={{...iconBtn, marginLeft:'5px'}}><Edit2 size={12} color="#2563eb"/></button>
+                                                                  <button onClick={() => handleDelete(rec.id, 'timesheet')} style={iconBtn}><Trash2 size={12} color="#ef4444"/></button>
+                                                              </div>
+                                                          ))}
+                                                      </div>
+                                                  </td>
+                                              </tr>
+                                          ))}
+                                      </tbody>
+                                  </table>
+                              )}
+                          </div>
+                      </>
+                  ) : <p style={{textAlign:'center', color:'#999', marginTop:'50px'}}>Selecione um colaborador ao lado.</p>}
+              </div>
+          </div>
+      );
+  };
+
+  const renderRecruitment = () => ( /* ... Mantido Igual ... */ 
     <div>
       <div style={{display:'flex', gap:'20px', marginBottom:'20px'}}>
         <button onClick={() => openModal('opening')} className="btn-primary"><Plus size={18}/> Nova Vaga</button>
@@ -255,7 +401,7 @@ export default function HumanResources() {
     </div>
   );
 
-  const renderTerminations = () => (
+  const renderTerminations = () => ( /* ... Mantido Igual ... */
     <div>
         <div style={{display:'flex', justifyContent:'flex-end', marginBottom:'10px'}}>
             <button onClick={() => openModal('termination')} className="btn-danger">
@@ -285,7 +431,7 @@ export default function HumanResources() {
     </div>
   );
 
-  const renderForms = () => (
+  const renderForms = () => ( /* ... Mantido Igual ... */ 
     <div>
         <div style={{display:'flex', justifyContent:'flex-end', marginBottom:'10px'}}>
             <button onClick={() => openModal('form')} className="btn-primary"><Plus size={18}/> Criar Formulário</button>
@@ -330,7 +476,7 @@ export default function HumanResources() {
 
       {/* MENU DE ABAS */}
       <div style={{display: 'flex', gap: '20px', borderBottom: '1px solid #e5e7eb', marginBottom: '20px', overflowX: 'auto'}}>
-        {['employees', 'recruitment', 'forms', 'departments', 'positions', 'terminations'].map(tab => (
+        {['employees', 'timesheet', 'recruitment', 'forms', 'departments', 'positions', 'terminations'].map(tab => (
             <button 
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -342,8 +488,9 @@ export default function HumanResources() {
                 }}
             >
                 {tab === 'employees' && 'Colaboradores'}
+                {tab === 'timesheet' && 'Gestão de Ponto'}
                 {tab === 'recruitment' && 'Recrutamento'}
-                {tab === 'forms' && 'Formulários & Privados'}
+                {tab === 'forms' && 'Formulários'}
                 {tab === 'departments' && 'Departamentos'}
                 {tab === 'positions' && 'Cargos'}
                 {tab === 'terminations' && 'Desligamentos'}
@@ -354,6 +501,7 @@ export default function HumanResources() {
       {loading ? <p>Carregando...</p> : (
         <>
           {activeTab === 'employees' && renderEmployees()}
+          {activeTab === 'timesheet' && renderTimesheet()}
           {activeTab === 'recruitment' && renderRecruitment()}
           {activeTab === 'forms' && renderForms()}
           {activeTab === 'terminations' && renderTerminations()}
@@ -400,13 +548,40 @@ export default function HumanResources() {
       {showModal && (
         <div style={modalOverlay}>
           <div style={modalContent}>
-            <h2 style={{marginBottom: '1.5rem', color: '#1f2937', textTransform:'capitalize'}}>
-               {editingItem ? 'Editar' : 'Novo'} {modalType}
-            </h2>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem'}}>
+                <h2 style={{margin:0, color: '#1f2937', textTransform:'capitalize'}}>
+                   {editingItem ? 'Editar' : 'Novo'} {modalType === 'timesheet' ? 'Registro de Ponto' : modalType}
+                </h2>
+                <button onClick={() => setShowModal(false)} style={{border:'none', background:'transparent', cursor:'pointer'}}><X/></button>
+            </div>
             
             <form onSubmit={handleSave} style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
               
-              {/* --- FORMULÁRIO DE COLABORADOR ATUALIZADO --- */}
+              {/* --- FORMULÁRIO DE PONTO --- */}
+              {modalType === 'timesheet' && (
+                  <>
+                      <label style={labelStyle}>Data</label>
+                      <input type="date" required value={pointData.date} onChange={e => setPointData({...pointData, date: e.target.value})} style={inputStyle} />
+                      
+                      <label style={labelStyle}>Horário</label>
+                      <input type="time" required value={pointData.time} onChange={e => setPointData({...pointData, time: e.target.value})} style={inputStyle} />
+                      
+                      {/* Se for edição, não deixa mudar o tipo */}
+                      {!editingItem && (
+                          <>
+                              <label style={labelStyle}>Tipo</label>
+                              <select value={pointData.type} onChange={e => setPointData({...pointData, type: e.target.value})} style={inputStyle}>
+                                  <option value="entry">Entrada</option>
+                                  <option value="lunch_out">Saída Almoço</option>
+                                  <option value="lunch_in">Retorno Almoço</option>
+                                  <option value="exit">Saída</option>
+                              </select>
+                          </>
+                      )}
+                  </>
+              )}
+
+              {/* --- FORMULÁRIO DE COLABORADOR --- */}
               {modalType === 'employee' && (
                 <>
                   <input required placeholder="Nome Completo" value={empData.name} onChange={e => setEmpData({...empData, name: e.target.value})} style={inputStyle} />
@@ -415,10 +590,9 @@ export default function HumanResources() {
                     <input placeholder="Telefone" value={empData.phone} onChange={e => setEmpData({...empData, phone: e.target.value})} style={inputStyle} />
                   </div>
                   
-                  {/* --- CAMPO DE SENHA ADICIONADO --- */}
                   <input 
                     type="password" 
-                    placeholder={editingItem ? "Nova Senha (deixe em branco para manter)" : "Senha de Acesso ao Portal"} 
+                    placeholder={editingItem ? "Nova Senha (opcional)" : "Senha de Acesso"} 
                     value={empData.password || ''} 
                     onChange={e => setEmpData({...empData, password: e.target.value})} 
                     style={{...inputStyle, border: '1px solid #93c5fd', backgroundColor: '#eff6ff'}} 
@@ -434,9 +608,14 @@ export default function HumanResources() {
                         {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                     </select>
                   </div>
+                  <div style={rowStyle}>
+                      <input type="number" placeholder="Carga Horária (h)" value={empData.work_hours_daily} onChange={e => setEmpData({...empData, work_hours_daily: e.target.value})} style={inputStyle} />
+                      <input placeholder="CPF" value={empData.cpf} onChange={e => setEmpData({...empData, cpf: e.target.value})} style={inputStyle} />
+                  </div>
                 </>
               )}
 
+              {/* OUTROS FORMULÁRIOS (MANTIDOS) */}
               {modalType === 'opening' && (
                 <>
                     <input required placeholder="Título da Vaga" value={openingData.title} onChange={e => setOpeningData({...openingData, title: e.target.value})} style={inputStyle} />
@@ -569,3 +748,4 @@ const rowStyle = { display: 'flex', gap: '10px' };
 const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', padding:'4px' };
 const modalOverlay = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 const modalContent = { backgroundColor: 'white', padding: '2rem', borderRadius: '12px', width: '550px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' };
+const labelStyle = { fontSize: '0.85rem', fontWeight: '600', color: '#4b5563', marginBottom: '2px', display: 'block' };

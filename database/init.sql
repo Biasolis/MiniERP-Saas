@@ -464,3 +464,101 @@ ADD COLUMN IF NOT EXISTS allow_guest_tickets BOOLEAN DEFAULT FALSE;
 -- Garante que a tabela de categorias tenha o campo de SLA (caso também falte)
 ALTER TABLE ticket_categories
 ADD COLUMN IF NOT EXISTS sla_hours INTEGER DEFAULT 24;
+
+-- 1. Tabela de Logs de Auditoria
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER, -- Tenta capturar se disponível na linha
+    table_name TEXT NOT NULL,
+    operation TEXT NOT NULL, -- INSERT, UPDATE, DELETE
+    record_id TEXT, -- ID do registro afetado
+    old_data JSONB, -- Dados antes da alteração
+    new_data JSONB, -- Dados depois da alteração
+    changed_by TEXT, -- Usuário do banco ou aplicação (se passado via variavel de sessão)
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 2. Função Genérica do Trigger
+CREATE OR REPLACE FUNCTION audit_trigger_function() RETURNS TRIGGER AS $$
+DECLARE
+    rec_id TEXT;
+    old_val JSONB := NULL;
+    new_val JSONB := NULL;
+    op TEXT := TG_OP;
+    tenant INTEGER := NULL;
+    app_user TEXT := NULL;
+BEGIN
+    -- Tenta capturar o ID do registro (assume que a PK é 'id')
+    IF TG_OP = 'DELETE' THEN
+        rec_id := OLD.id::TEXT;
+        old_val := to_jsonb(OLD);
+        -- Tenta pegar tenant_id se existir na tabela
+        BEGIN 
+            tenant := OLD.tenant_id; 
+        EXCEPTION WHEN OTHERS THEN 
+            tenant := NULL; 
+        END;
+    ELSE
+        rec_id := NEW.id::TEXT;
+        new_val := to_jsonb(NEW);
+        
+        IF TG_OP = 'UPDATE' THEN
+            old_val := to_jsonb(OLD);
+        END IF;
+
+        -- Tenta pegar tenant_id se existir na tabela
+        BEGIN 
+            tenant := NEW.tenant_id; 
+        EXCEPTION WHEN OTHERS THEN 
+            tenant := NULL; 
+        END;
+    END IF;
+
+    -- Tenta capturar o usuário da aplicação se foi setado via "SET app.current_user = '...'"
+    -- Se não, pega o usuário do banco (ex: postgres)
+    BEGIN
+        app_user := current_setting('app.current_user');
+    EXCEPTION WHEN OTHERS THEN
+        app_user := session_user;
+    END;
+
+    -- Insere o Log
+    INSERT INTO audit_logs (
+        tenant_id, 
+        table_name, 
+        operation, 
+        record_id, 
+        old_data, 
+        new_data, 
+        changed_by
+    ) VALUES (
+        tenant,
+        TG_TABLE_NAME,
+        op,
+        rec_id,
+        old_val,
+        new_val,
+        app_user
+    );
+
+    RETURN NULL; -- Trigger AFTER não precisa retornar o registro
+END;
+$$ LANGUAGE plpgsql;
+
+-- 3. Script para aplicar o Trigger em TODAS as tabelas automaticamente
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOR t IN 
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+          AND table_type = 'BASE TABLE'
+          AND table_name != 'audit_logs' -- Não audita a própria tabela de log
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS audit_trigger ON %I', t);
+        EXECUTE format('CREATE TRIGGER audit_trigger AFTER INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION audit_trigger_function()', t);
+    END LOOP;
+END;
+$$;
