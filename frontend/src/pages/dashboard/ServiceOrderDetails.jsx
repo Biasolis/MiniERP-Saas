@@ -31,7 +31,7 @@ export default function ServiceOrderDetails() {
         customValues: {} 
     });
 
-    // Estado do Modal de Finalização (AGORA COM DADOS FINANCEIROS)
+    // Estado do Modal de Finalização
     const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
     const [finishData, setFinishData] = useState({
         payment_method: 'money',
@@ -134,7 +134,7 @@ export default function ServiceOrderDetails() {
         try { await api.delete(`/service-orders/${id}/items/${itemId}`); loadData(); } catch(e) {}
     }
 
-    // --- CONTROLE DE STATUS (ATUALIZADO) ---
+    // --- CONTROLE DE STATUS ---
     const updateStatus = async (newStatus, confirmMsg) => {
         if(confirmMsg && !confirm(confirmMsg)) return;
         try {
@@ -147,7 +147,6 @@ export default function ServiceOrderDetails() {
     };
 
     const handleFinishClick = () => {
-        // Reseta dados financeiros ao abrir
         setFinishData({ payment_method: 'money', installments: 1 });
         setIsFinishModalOpen(true);
     };
@@ -167,9 +166,10 @@ export default function ServiceOrderDetails() {
         }
     };
 
+    // --- CORREÇÃO DE IMPRESSÃO ---
+    // Usa navigate() para evitar perda de sessão (não abre nova aba)
     const handlePrint = (mode) => {
-        const url = `/print/os/${id}?mode=${mode}`;
-        window.open(url, '_blank');
+        navigate(`/dashboard/print-os/${id}?mode=${mode}`);
     };
 
     if (loading) return <DashboardLayout><div style={{padding:'2rem'}}>Carregando OS...</div></DashboardLayout>;
@@ -189,7 +189,7 @@ export default function ServiceOrderDetails() {
                 
                 <div style={{display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap'}}>
                     
-                    {/* IMPRESSÃO */}
+                    {/* BOTÕES DE IMPRESSÃO */}
                     <div className={styles.printGroup}>
                         <button onClick={() => handlePrint('thermal')} className={styles.btnPrint} title="Cupom 80mm">
                             <Scroll size={16} /> Cupom
@@ -197,12 +197,14 @@ export default function ServiceOrderDetails() {
                         <button onClick={() => handlePrint('a4')} className={styles.btnPrint} title="Folha A4">
                             <FileText size={16} /> A4
                         </button>
+                        <button onClick={() => handlePrint('a5_landscape')} className={styles.btnPrint} title="Meia Folha (Paisagem)">
+                            <FileText size={16} style={{transform:'rotate(90deg)'}} /> A5
+                        </button>
                     </div>
 
                     <div className={styles.separator}></div>
 
-                    {/* --- BOTÕES DE STATUS (ADICIONADOS) --- */}
-                    
+                    {/* BOTÕES DE STATUS */}
                     {os.status !== 'completed' && (
                         <button onClick={openEditModal} className={styles.btnEdit}>
                             <Edit size={16} /> Editar
@@ -243,7 +245,7 @@ export default function ServiceOrderDetails() {
 
             <div className={styles.gridContainer}>
                 
-                {/* --- COLUNA ESQUERDA --- */}
+                {/* ESQUERDA */}
                 <div className={styles.leftCol}>
                     <div className={styles.card}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
@@ -310,7 +312,7 @@ export default function ServiceOrderDetails() {
                     )}
                 </div>
 
-                {/* --- COLUNA DIREITA --- */}
+                {/* DIREITA */}
                 <div className={styles.rightCol}>
                     <div className={styles.card}>
                         <h3>Itens e Serviços</h3>
@@ -379,7 +381,7 @@ export default function ServiceOrderDetails() {
                 </form>
             </Modal>
 
-            {/* MODAL FINALIZAÇÃO (ATUALIZADO COM FINANCEIRO) */}
+            {/* MODAL FINALIZAÇÃO */}
             <Modal isOpen={isFinishModalOpen} onClose={() => setIsFinishModalOpen(false)} title="Finalizar e Gerar Financeiro">
                 <div style={{padding:'10px'}}>
                     <p style={{marginBottom:'20px', color:'#666'}}>

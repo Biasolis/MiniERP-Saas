@@ -8,11 +8,10 @@ const auditService = require('../services/auditService');
 const listTransactions = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        // Aceita tanto startDate (legado) quanto start_date (novo front)
         const { page = 1, limit = 50, type, status, startDate, endDate, start_date, end_date } = req.query;
         const offset = (page - 1) * limit;
 
-        // Normaliza datas
+        // Normaliza datas (suporta padrão antigo e novo)
         const finalStart = start_date || startDate;
         const finalEnd = end_date || endDate;
 
@@ -52,12 +51,6 @@ const listTransactions = async (req, res) => {
 
         const result = await query(sql, params);
         
-        // Contagem para paginação (se necessário)
-        // const countResult = await query(`SELECT COUNT(*) FROM transactions WHERE tenant_id = $1`, [tenantId]);
-
-        // Retorna array direto se o front esperar array, ou objeto se esperar paginação.
-        // O front novo espera array direto (res.data), o antigo paginação.
-        // Vou retornar array direto pois o novo front Transaction.jsx faz map direto.
         return res.json(result.rows);
 
     } catch (error) {
@@ -67,7 +60,7 @@ const listTransactions = async (req, res) => {
 };
 
 // ==========================================
-// 2. RESUMO FINANCEIRO (NOVO - Para tela de Transações)
+// 2. RESUMO FINANCEIRO (Para tela de Transações)
 // ==========================================
 const getSummary = async (req, res) => {
     try {
@@ -129,6 +122,7 @@ const createTransaction = async (req, res) => {
         
         if (!finalCategoryId && use_ai_category) {
             const categoryName = await geminiService.categorizeTransaction(description);
+            // Verifica se categoria existe pelo nome
             const catCheck = await query('SELECT id FROM categories WHERE tenant_id = $1 AND name = $2', [tenantId, categoryName]);
             
             if (catCheck.rows.length > 0) {
@@ -141,13 +135,20 @@ const createTransaction = async (req, res) => {
 
         // 2. Lógica de Parcelamento
         const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
-        const installmentValue = Math.floor((Number(amount) / numInstallments) * 100) / 100;
-        const remainder = Number(amount) - (installmentValue * numInstallments);
+        const totalAmount = Number(amount);
+        
+        // Divide o valor em centavos para evitar erro de float
+        const installmentValue = Math.floor((totalAmount / numInstallments) * 100) / 100;
+        const remainder = totalAmount - (installmentValue * numInstallments); // O que sobra vai na última
 
         // Loop para criar as parcelas
         for (let i = 0; i < numInstallments; i++) {
-            const val = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
+            // Se for a última parcela, soma o resto dos centavos
+            let val = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
             
+            // Garante 2 casas decimais
+            val = Number(val.toFixed(2));
+
             const dueDate = new Date(date);
             dueDate.setMonth(dueDate.getMonth() + i);
 
@@ -159,7 +160,7 @@ const createTransaction = async (req, res) => {
                 (tenant_id, category_id, client_id, supplier_id, description, amount, type, cost_type, status, date, created_by, attachment_path, installment_index, installments_total) 
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                 [
-                    tenantId, finalCategoryId, client_id || null, supplier_id || null, 
+                    tenantId, finalCategoryId || null, client_id || null, supplier_id || null, 
                     desc, val, type, cost_type || 'variable', st, dueDate, userId, 
                     attachment_path || null, i + 1, numInstallments
                 ]
@@ -172,7 +173,7 @@ const createTransaction = async (req, res) => {
             userId, 
             'CREATE', 
             'TRANSACTION', 
-            null, // ID null pois podem ser várias
+            null, 
             `Criou transação: ${description} (R$ ${amount}) em ${numInstallments}x`
         );
 
@@ -200,9 +201,10 @@ const updateTransactionStatus = async (req, res) => {
              return res.status(400).json({ message: 'Status inválido.' });
         }
 
+        // CORREÇÃO: Removido "updated_at = NOW()" pois a coluna não existe no banco
         const result = await query(
             `UPDATE transactions 
-             SET status = $1, updated_at = NOW() 
+             SET status = $1
              WHERE id = $2 AND tenant_id = $3 
              RETURNING *`,
             [status, id, tenantId]
@@ -431,7 +433,7 @@ const getChartData = async (req, res) => {
 
 module.exports = {
     listTransactions,
-    getSummary, // NOVO (Para o Transactions.jsx)
+    getSummary,
     createTransaction,
     updateTransactionStatus,
     updateStatus: updateTransactionStatus, // Alias

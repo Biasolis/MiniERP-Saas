@@ -21,7 +21,8 @@ import {
   ShieldCheck,
   Factory,
   Monitor,
-  DollarSign
+  DollarSign,
+  MessageSquare // <--- ADICIONADO AQUI
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -107,6 +108,20 @@ export default function Sidebar() {
         </NavLink>
 
         <div style={{ margin: '10px 0 5px 15px', fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>
+          Atendimento
+        </div>
+
+        <NavLink to="/dashboard/tickets" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <MessageSquare size={20} />
+          <span>Tickets</span>
+        </NavLink>
+        
+        <NavLink to="/dashboard/tickets/config" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
+          <Settings size={20} />
+          <span>Config. Portal</span>
+        </NavLink>
+
+        <div style={{ margin: '10px 0 5px 15px', fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>
           Corporativo
         </div>
 
@@ -115,7 +130,6 @@ export default function Sidebar() {
           <span>Recursos Humanos</span>
         </NavLink>
 
-        {/* --- NOVO ITEM: FOLHA DE PAGAMENTO --- */}
         <NavLink to="/dashboard/payroll" className={({ isActive }) => isActive ? `${styles.link} ${styles.active}` : styles.link}>
           <DollarSign size={20} />
           <span>Folha de Pagamento</span>

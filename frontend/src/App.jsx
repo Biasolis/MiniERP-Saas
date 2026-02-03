@@ -31,6 +31,7 @@ import ServiceOrders from './pages/dashboard/ServiceOrders';
 import ServiceOrderDetails from './pages/dashboard/ServiceOrderDetails';
 import PrintOS from './pages/dashboard/PrintOS';
 import Sales from './pages/dashboard/Sales';
+import SaleDetails from './pages/dashboard/SaleDetails'; // <--- Importe o novo arquivo
 import Quotes from './pages/dashboard/Quotes';
 import QuoteDetails from './pages/dashboard/QuoteDetails';
 import PcpDashboard from './pages/dashboard/PcpDashboard';
@@ -41,13 +42,23 @@ import PosTerminal from './pages/pos/PosTerminal';
 import PosHistory from './pages/dashboard/PosHistory';
 import HumanResources from './pages/dashboard/HumanResources';
 
+// --- Modulos de Tickets ---
+import Tickets from './pages/dashboard/Tickets';
+import TicketConfig from './pages/dashboard/TicketConfig';
+import HelpdeskLogin from './pages/helpdesk/HelpdeskLogin';
+import HelpdeskPanel from './pages/helpdesk/HelpdeskPanel';
+import HelpdeskTicket from './pages/helpdesk/HelpdeskTicket'; 
+
 // --- NOVOS MÓDULOS (Folha e Portal) ---
 import Payroll from './pages/dashboard/Payroll';
 import EmployeeLogin from './pages/portal/EmployeeLogin';
 import EmployeePanel from './pages/portal/EmployeePanel';
+import EmployeeTicket from './pages/portal/EmployeeTicket';
 
 // --- Admin ---
 import AdminDashboard from './pages/admin/AdminDashboard';
+
+// CSS REMOVIDO AQUI
 
 export default function App() {
   return (
@@ -56,16 +67,12 @@ export default function App() {
         <Router>
           <Routes>
             {/* ========================================================
-               ROTAS PÚBLICAS (ADMIN/SISTEMA)
+               ROTAS PÚBLICAS
                ======================================================== */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
-            
-            {/* ========================================================
-               ROTAS PÚBLICAS (PORTAL DO COLABORADOR)
-               ======================================================== */}
             <Route path="/portal/login" element={<EmployeeLogin />} />
 
             {/* ========================================================
@@ -74,10 +81,10 @@ export default function App() {
             <Route path="/pos" element={<PrivateRoute><PosTerminal /></PrivateRoute>} />
 
             {/* ========================================================
-               ROTAS DO PORTAL DO COLABORADOR (Área Restrita do Funcionário)
-               Nota: O EmployeePanel gerencia sua própria proteção de token
+               ROTAS DO PORTAL DO COLABORADOR
                ======================================================== */}
-            <Route path="/portal/dashboard" element={<EmployeePanel />} />
+            <Route path="/portal/panel" element={<EmployeePanel />} />
+            <Route path="/portal/ticket/:id" element={<EmployeeTicket />} />
 
             {/* ========================================================
                ROTAS PROTEGIDAS DO DASHBOARD (SaaS Admin)
@@ -92,7 +99,9 @@ export default function App() {
             {/* Ordens de Serviço */}
             <Route path="/dashboard/service-orders" element={<PrivateRoute><ServiceOrders /></PrivateRoute>} />
             <Route path="/dashboard/service-orders/:id" element={<PrivateRoute><ServiceOrderDetails /></PrivateRoute>} />
-            <Route path="/dashboard/print-os/:id" element={<PrivateRoute><PrintOS /></PrivateRoute>} />
+            
+            {/* --- ROTA DE IMPRESSÃO (SEM PrivateRoute e SEM CSS global afetando) --- */}
+            <Route path="/dashboard/print-os/:id" element={<PrintOS />} />
             
             {/* Produtos e Estoque */}
             <Route path="/dashboard/products" element={<PrivateRoute><Products /></PrivateRoute>} />
@@ -101,12 +110,13 @@ export default function App() {
             
             {/* Vendas e Orçamentos */}
             <Route path="/dashboard/sales" element={<PrivateRoute><Sales /></PrivateRoute>} />
+            <Route path="/dashboard/sales/:id" element={<PrivateRoute><SaleDetails /></PrivateRoute>} />
             <Route path="/dashboard/recurring" element={<PrivateRoute><Recurring /></PrivateRoute>} />
             <Route path="/dashboard/quotes" element={<PrivateRoute><Quotes /></PrivateRoute>} />
             <Route path="/dashboard/quotes/:id" element={<PrivateRoute><QuoteDetails /></PrivateRoute>} />
             <Route path="/dashboard/pos-history" element={<PrivateRoute><PosHistory /></PrivateRoute>} />
 
-            {/* RH e Departamento Pessoal (NOVAS ROTAS) */}
+            {/* RH e Departamento Pessoal */}
             <Route path="/dashboard/hr" element={<PrivateRoute><HumanResources /></PrivateRoute>} />
             <Route path="/dashboard/payroll" element={<PrivateRoute><Payroll /></PrivateRoute>} />
             
@@ -122,6 +132,15 @@ export default function App() {
             <Route path="/dashboard/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
             <Route path="/dashboard/calendar" element={<PrivateRoute><CalendarPage /></PrivateRoute>} />
             <Route path="/dashboard/tasks" element={<PrivateRoute><TasksPage /></PrivateRoute>} />
+
+            {/* Módulo de Tickets (Admin) */}
+            <Route path="/dashboard/tickets" element={<PrivateRoute><Tickets /></PrivateRoute>} />
+            <Route path="/dashboard/tickets/config" element={<PrivateRoute><TicketConfig /></PrivateRoute>} />
+
+            {/* Portal Externo de Ajuda (Público/Cliente) */}
+            <Route path="/helpdesk/:slug" element={<HelpdeskLogin />} />
+            <Route path="/helpdesk/:slug/panel" element={<HelpdeskPanel />} />
+            <Route path="/helpdesk/:slug/ticket/:id" element={<HelpdeskTicket />} />
 
             {/* Super Admin */}
             <Route path="/admin" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />

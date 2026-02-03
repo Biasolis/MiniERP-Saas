@@ -1,143 +1,218 @@
 const { query } = require('../config/db');
 
-// Criar Venda (PDV)
+// ==========================================
+// 1. CRIAR VENDA (RASCUNHO OU DIRETA)
+// ==========================================
 const createSale = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const sellerId = req.user.id;
         const { 
             client_id, items, 
-            payment_method, discount, amount_paid, notes,
-            installments, // <--- NOVO CAMPO (Número de parcelas)
-            pos_session_id // <--- NOVO CAMPO (Sessão do Caixa)
+            status, // 'draft' ou 'completed'
+            total_amount 
         } = req.body;
 
-        if (!items || items.length === 0) {
-            return res.status(400).json({ message: 'O carrinho está vazio.' });
+        // Se for venda direta (PDV), exige itens
+        if (status === 'completed' && (!items || items.length === 0)) {
+            return res.status(400).json({ message: 'Venda finalizada precisa ter itens.' });
         }
 
         await query('BEGIN');
 
-        // 1. Busca dados do vendedor (para comissão)
-        const userRes = await query('SELECT commission_rate FROM users WHERE id = $1', [sellerId]);
-        const sellerDefaultCommission = Number(userRes.rows[0]?.commission_rate || 0);
-
-        // 2. Cria Cabeçalho da Venda (Incluindo pos_session_id)
+        // Cria o Cabeçalho
         const saleRes = await query(
             `INSERT INTO sales (
-                tenant_id, seller_id, client_id, pos_session_id, total_amount, 
-                status, payment_method, discount, amount_paid, change_amount, notes
-            ) VALUES ($1, $2, $3, $4, 0, 'completed', $5, $6, $7, 0, $8) RETURNING id`,
+                tenant_id, seller_id, client_id, total_amount, 
+                status, created_at
+            ) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
             [
                 tenantId, 
                 sellerId, 
                 client_id || null, 
-                pos_session_id || null, // Vincula à sessão do caixa se existir
-                payment_method || 'cash', 
-                discount || 0, 
-                amount_paid || 0, 
-                notes || ''
+                total_amount || 0,
+                status || 'draft'
             ]
         );
         const saleId = saleRes.rows[0].id;
 
-        let totalItemsAmount = 0;
-        let totalCommissionAmount = 0;
-
-        // 3. Processa Itens
-        for (const item of items) {
-            const qty = Number(item.quantity);
-            const price = Number(item.unit_price);
-            const subtotal = qty * price;
-
-            // Busca produto
-            const prodRes = await query('SELECT type, stock, name, commission_rate FROM products WHERE id = $1', [item.product_id]);
-            
-            if (prodRes.rows.length === 0) {
-                await query('ROLLBACK');
-                return res.status(400).json({ message: `Produto ID ${item.product_id} não encontrado.` });
-            }
-
-            const product = prodRes.rows[0];
-
-            // Valida Estoque
-            if (product.type === 'product' && product.stock < qty) {
-                await query('ROLLBACK');
-                return res.status(400).json({ message: `Estoque insuficiente para: ${product.name}` });
-            }
-
-            // Comissão
-            const rateToUse = product.commission_rate !== null ? Number(product.commission_rate) : sellerDefaultCommission;
-            const itemCommission = subtotal * (rateToUse / 100);
-
-            // Insere Item
-            await query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal, commission_amount)
-                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [saleId, item.product_id, qty, price, subtotal, itemCommission]
-            );
-
-            // Baixa Estoque
-            if (product.type === 'product') {
-                await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [qty, item.product_id]);
+        // Se tiver itens (Venda Direta), processa agora
+        if (items && items.length > 0) {
+            for (const item of items) {
+                // Insere item
                 await query(
-                    `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
-                     VALUES ($1, $2, 'out', $3, 'sale', $4, $5)`,
-                    [tenantId, item.product_id, qty, `Venda #${saleId}`, sellerId]
+                    `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [saleId, item.product_id, item.quantity, item.unit_price, item.subtotal]
                 );
-            }
 
-            totalItemsAmount += subtotal;
-            totalCommissionAmount += itemCommission;
+                // Se já nasceu finalizada, baixa estoque
+                if (status === 'completed') {
+                    const quantityToDeduct = Number(item.quantity);
+                    await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [quantityToDeduct, item.product_id]);
+                }
+            }
         }
 
-        // 4. Cálculos Finais
-        const finalTotal = totalItemsAmount - (Number(discount) || 0);
-        const change = (Number(amount_paid) || 0) - finalTotal;
+        await query('COMMIT');
+        return res.status(201).json({ message: 'Venda iniciada com sucesso!', id: saleId });
 
-        // Atualiza Venda
+    } catch (error) {
+        await query('ROLLBACK');
+        console.error(error);
+        return res.status(500).json({ message: 'Erro ao criar venda.' });
+    }
+};
+
+// ==========================================
+// 2. ADICIONAR ITEM (EM RASCUNHO)
+// ==========================================
+const addItem = async (req, res) => {
+    try {
+        const { id } = req.params; // Sale ID
+        const { product_id, quantity, unit_price } = req.body;
+        
+        const qty = Number(quantity);
+        const price = Number(unit_price);
+        const subtotal = qty * price;
+
+        await query('BEGIN');
+
+        // Insere Item
         await query(
-            `UPDATE sales SET total_amount = $1, change_amount = $2 WHERE id = $3`, 
-            [finalTotal, change > 0 ? change : 0, saleId]
+            `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [id, product_id, qty, price, subtotal]
         );
 
-        // 5. GERAÇÃO FINANCEIRA (COM PARCELAMENTO)
-        const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
-        const methodMap = { 'money': 'Dinheiro', 'credit': 'Crédito', 'debit': 'Débito', 'pix': 'PIX' };
-        const methodLabel = methodMap[payment_method] || payment_method;
+        // Atualiza Total da Venda
+        await query(
+            `UPDATE sales SET total_amount = total_amount + $1 WHERE id = $2`,
+            [subtotal, id]
+        );
 
-        // Lógica de divisão de valor
-        const installmentValue = Math.floor((finalTotal / numInstallments) * 100) / 100;
-        const remainder = finalTotal - (installmentValue * numInstallments); // Centavos que sobram
+        await query('COMMIT');
+        res.status(201).json({ message: 'Item adicionado' });
+    } catch (error) {
+        await query('ROLLBACK');
+        res.status(500).json({ message: 'Erro ao adicionar item' });
+    }
+};
+
+// ==========================================
+// 3. REMOVER ITEM
+// ==========================================
+const removeItem = async (req, res) => {
+    try {
+        const { id, itemId } = req.params; // Sale ID, Item ID
+
+        await query('BEGIN');
+
+        // Busca valor do item para subtrair
+        const itemRes = await query('SELECT subtotal FROM sale_items WHERE id = $1', [itemId]);
+        if (itemRes.rows.length === 0) return res.status(404).json({message: 'Item não encontrado'});
+        
+        const subtotal = itemRes.rows[0].subtotal;
+
+        // Remove
+        await query('DELETE FROM sale_items WHERE id = $1', [itemId]);
+
+        // Atualiza Total
+        await query(
+            `UPDATE sales SET total_amount = total_amount - $1 WHERE id = $2`,
+            [subtotal, id]
+        );
+
+        await query('COMMIT');
+        res.json({ message: 'Item removido' });
+    } catch (error) {
+        await query('ROLLBACK');
+        res.status(500).json({ message: 'Erro ao remover item' });
+    }
+};
+
+// ==========================================
+// 4. ATUALIZAR CLIENTE (PATCH)
+// ==========================================
+const updateSale = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { client_id } = req.body;
+
+        await query('UPDATE sales SET client_id = $1 WHERE id = $2', [client_id, id]);
+        res.json({ message: 'Venda atualizada' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao atualizar venda' });
+    }
+};
+
+// ==========================================
+// 5. FINALIZAR VENDA (GERA FINANCEIRO)
+// ==========================================
+const finishSale = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tenantId = req.user.tenantId;
+        const sellerId = req.user.id;
+        const { payment_method, installments, discount } = req.body;
+
+        await query('BEGIN');
+
+        // Busca dados completos da venda
+        const saleRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
+        const sale = saleRes.rows[0];
+
+        if (sale.status === 'completed') {
+            return res.status(400).json({ message: 'Venda já finalizada.' });
+        }
+
+        // Calcula totais finais
+        const totalBruto = Number(sale.total_amount);
+        const valorDesconto = Number(discount || 0);
+        const totalLiquido = totalBruto - valorDesconto;
+
+        // 1. Atualiza Status e Valores
+        await query(
+            `UPDATE sales SET status = 'completed', payment_method = $1, discount = $2, total_amount = $3 
+             WHERE id = $4`,
+            [payment_method, valorDesconto, totalBruto, id] 
+        );
+
+        // 2. Baixa Estoque dos Itens
+        const itemsRes = await query('SELECT product_id, quantity FROM sale_items WHERE sale_id = $1', [id]);
+        
+        for (const item of itemsRes.rows) {
+            // CORREÇÃO: Garante que a quantidade seja um número para evitar erro de sintaxe no PG
+            const quantityToDeduct = Number(item.quantity);
+
+            await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [quantityToDeduct, item.product_id]);
+            
+            // Log de Movimentação
+            await query(
+                `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, created_by)
+                 VALUES ($1, $2, 'out', $3, 'sale', $4)`,
+                [tenantId, item.product_id, quantityToDeduct, sellerId]
+            );
+        }
+
+        // 3. Gera Parcelas Financeiras
+        const numInstallments = Number(installments) > 0 ? Number(installments) : 1;
+        const installmentValue = totalLiquido / numInstallments;
 
         for (let i = 0; i < numInstallments; i++) {
-            // Se for a última parcela, soma a diferença de centavos
-            const amount = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
-            
-            // Calcula Data de Vencimento (Hoje + 30 dias * i)
             const dueDate = new Date();
-            dueDate.setDate(dueDate.getDate() + (30 * i)); // Regra simples de 30 dias
-
-            // Status: No PDV, assume-se que a primeira parcela ou venda a vista já está paga.
-            // Ajuste conforme regra de negócio: Se for crédito parcelado, entra como 'completed' (recebível gerado) ou 'pending'?
-            // Para simplificar PDV, assumimos 'completed' (venda fechada).
-            const status = 'completed'; 
-
-            const desc = numInstallments > 1 
-                ? `Venda PDV #${saleId} (${methodLabel}) - Parcela ${i+1}/${numInstallments}`
-                : `Venda PDV #${saleId} (${methodLabel})`;
+            dueDate.setMonth(dueDate.getMonth() + i); // +1 mês para cada parcela
 
             await query(
                 `INSERT INTO transactions (
                     tenant_id, description, amount, type, status, date, client_id, created_by, installment_index, installments_total
-                ) VALUES ($1, $2, $3, 'income', $4, $5, $6, $7, $8, $9)`,
+                ) VALUES ($1, $2, $3, 'income', 'pending', $4, $5, $6, $7, $8)`,
                 [
                     tenantId, 
-                    desc, 
-                    amount, 
-                    status, 
+                    `Venda #${id} (${i+1}/${numInstallments})`, 
+                    installmentValue, 
                     dueDate, 
-                    client_id || null, 
+                    sale.client_id, 
                     sellerId,
                     i + 1,
                     numInstallments
@@ -145,53 +220,62 @@ const createSale = async (req, res) => {
             );
         }
 
-        // 6. Comissão
-        if (totalCommissionAmount > 0) {
-            await query(
-                `INSERT INTO commissions (tenant_id, seller_id, sale_id, amount, status)
-                 VALUES ($1, $2, $3, $4, 'pending')`,
-                [tenantId, sellerId, saleId, totalCommissionAmount]
-            );
-        }
-
         await query('COMMIT');
-        return res.status(201).json({ message: 'Venda realizada com sucesso!', saleId });
+        res.json({ message: 'Venda finalizada com sucesso!' });
 
     } catch (error) {
         await query('ROLLBACK');
         console.error(error);
-        return res.status(500).json({ message: 'Erro ao processar venda.' });
+        res.status(500).json({ message: 'Erro ao finalizar venda' });
     }
 };
 
-// Listar Vendas
+// ==========================================
+// LISTAGEM E DETALHES (PADRÃO)
+// ==========================================
 const getSales = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const result = await query(`
-            SELECT s.*, u.name as seller_name, c.name as client_name
+        const { client, status, startDate, endDate } = req.query;
+
+        let sql = `
+            SELECT s.*, c.name as client_name 
             FROM sales s
-            LEFT JOIN users u ON s.seller_id = u.id
             LEFT JOIN clients c ON s.client_id = c.id
             WHERE s.tenant_id = $1
-            ORDER BY s.created_at DESC
-        `, [tenantId]);
+        `;
+        const params = [tenantId];
+
+        if (client) {
+            sql += ` AND c.name ILIKE $${params.length + 1}`;
+            params.push(`%${client}%`);
+        }
+        if (status) {
+            sql += ` AND s.status = $${params.length + 1}`;
+            params.push(status);
+        }
+        if (startDate) {
+            sql += ` AND s.created_at >= $${params.length + 1}`;
+            params.push(startDate);
+        }
+
+        sql += ` ORDER BY s.created_at DESC`;
+
+        const result = await query(sql, params);
         return res.json(result.rows);
     } catch (error) {
         return res.status(500).json({ message: 'Erro ao listar vendas.' });
     }
 };
 
-// Detalhes da Venda
 const getSaleDetails = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const { id } = req.params;
 
         const saleRes = await query(`
-            SELECT s.*, u.name as seller_name, c.name as client_name
+            SELECT s.*, c.name as client_name, c.document as client_document
             FROM sales s
-            LEFT JOIN users u ON s.seller_id = u.id
             LEFT JOIN clients c ON s.client_id = c.id
             WHERE s.id = $1 AND s.tenant_id = $2
         `, [id, tenantId]);
@@ -199,10 +283,10 @@ const getSaleDetails = async (req, res) => {
         if (saleRes.rows.length === 0) return res.status(404).json({ message: 'Venda não encontrada.' });
 
         const itemsRes = await query(`
-            SELECT i.*, p.name as product_name
-            FROM sale_items i
-            JOIN products p ON i.product_id = p.id
-            WHERE i.sale_id = $1
+            SELECT si.*, p.name as product_name
+            FROM sale_items si
+            LEFT JOIN products p ON si.product_id = p.id
+            WHERE si.sale_id = $1
         `, [id]);
 
         return res.json({ sale: saleRes.rows[0], items: itemsRes.rows });
@@ -211,37 +295,12 @@ const getSaleDetails = async (req, res) => {
     }
 };
 
-// Relatório de Comissões
-const getCommissions = async (req, res) => {
-    try {
-        const tenantId = req.user.tenantId;
-        const { seller_id, status } = req.query;
-
-        let sql = `
-            SELECT c.*, u.name as seller_name, s.created_at as sale_date, s.total_amount as sale_total
-            FROM commissions c
-            JOIN users u ON c.seller_id = u.id
-            JOIN sales s ON c.sale_id = s.id
-            WHERE c.tenant_id = $1
-        `;
-        const params = [tenantId];
-
-        if (seller_id) {
-            sql += ` AND c.seller_id = $${params.length + 1}`;
-            params.push(seller_id);
-        }
-        if (status) {
-            sql += ` AND c.status = $${params.length + 1}`;
-            params.push(status);
-        }
-
-        sql += ` ORDER BY c.created_at DESC`;
-
-        const result = await query(sql, params);
-        return res.json(result.rows);
-    } catch (error) {
-        return res.status(500).json({ message: 'Erro ao listar comissões.' });
-    }
+module.exports = { 
+    createSale, 
+    getSales, 
+    getSaleDetails, 
+    addItem, 
+    removeItem, 
+    updateSale, 
+    finishSale 
 };
-
-module.exports = { createSale, getSales, getSaleDetails, getCommissions };

@@ -1,315 +1,421 @@
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import api from '../../services/api';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import api from '../../services/api'; // Usa a instância global com interceptors
+import { Printer, ArrowLeft, FileText, Smartphone } from 'lucide-react';
 
 export default function PrintOS() {
     const { id } = useParams();
-    const [searchParams] = useSearchParams();
-    const mode = searchParams.get('mode') || 'thermal'; // 'thermal' (padrão) ou 'a4'
+    const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
+    
+    // Modos: 'thermal', 'a4', 'a5_landscape'
+    const mode = searchParams.get('mode') || 'thermal';
 
     const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
     useEffect(() => {
-        api.get(`/service-orders/${id}`).then(res => {
-            setData(res.data);
-            // Pequeno delay para garantir renderização antes de abrir janela de print
-            setTimeout(() => window.print(), 800); 
-        });
+        const loadData = async () => {
+            try {
+                // 1. Busca Dados da OS
+                const osResponse = await api.get(`/service-orders/${id}`);
+                const osData = osResponse.data;
+
+                // 2. Busca Dados da Empresa (Tenant) separadamente para garantir
+                let companyData = osData.company || {}; 
+                try {
+                    const tenantResponse = await api.get('/settings'); // Endpoint de configurações
+                    if (tenantResponse.data) {
+                        companyData = { ...companyData, ...tenantResponse.data };
+                    }
+                } catch (err) {
+                    console.warn("Não foi possível carregar config extra da empresa", err);
+                }
+
+                // 3. Monta objeto final
+                setData({
+                    ...osData,
+                    company: companyData,
+                    // Garante que custom_fields seja um array
+                    custom_fields: osData.custom_fields || []
+                });
+
+            } catch (err) {
+                console.error("Erro ao carregar OS para impressão:", err);
+                setError('Erro ao carregar dados da OS.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadData();
     }, [id]);
 
-    if (!data) return <div style={{padding:'20px', fontFamily:'sans-serif'}}>Carregando dados da impressão...</div>;
-
-    // Seleciona o Layout
-    return mode === 'a4' ? <LayoutA4 data={data} /> : <LayoutThermal data={data} />;
-}
-
-// ==========================================
-// LAYOUT 1: TÉRMICO (CUPOM 80mm) - MANTIDO
-// ==========================================
-function LayoutThermal({ data }) {
-    const { os, items, company, custom_fields } = data;
-    
-    const styles = {
-        container: { fontFamily: '"Courier New", Courier, monospace', width: '80mm', margin: '0 auto', fontSize: '12px', textTransform: 'uppercase', color: '#000' },
-        header: { textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '5px', marginBottom: '5px' },
-        row: { display: 'flex', justifyContent: 'space-between' },
-        divider: { borderBottom: '1px dashed #000', margin: '5px 0' },
-        bold: { fontWeight: 'bold' },
-        center: { textAlign: 'center' },
-        sectionTitle: { fontWeight: 'bold', marginTop: '5px', textDecoration: 'underline' }
+    const changeMode = (newMode) => {
+        setSearchParams({ mode: newMode });
     };
 
+    const handlePrint = () => {
+        window.print();
+    };
+
+    if (loading) return <div style={styles.loading}>Carregando documento...</div>;
+    if (error) return <div style={styles.error}>{error} <button onClick={() => navigate(-1)} style={{marginLeft:'10px', padding:'5px 10px', cursor:'pointer'}}>Voltar</button></div>;
+    if (!data) return null;
+
+    // Seleciona Layout
+    let LayoutComponent;
+    if (mode === 'a4') LayoutComponent = LayoutStandard;
+    else if (mode === 'a5_landscape') LayoutComponent = LayoutA5Landscape;
+    else LayoutComponent = LayoutThermal;
+
     return (
-        <div style={styles.container}>
-            <div style={styles.header}>
-                <div style={{fontSize:'14px', fontWeight:'bold'}}>{company?.name || 'MINI ERP'}</div>
-                <div>{company?.address}</div>
-                <div>{company?.phone}</div>
-                {company?.document && <div>CNPJ: {company?.document}</div>}
-            </div>
-
-            <div style={styles.row}><span>OS NUM:</span><span style={styles.bold}>{String(os.id).padStart(6,'0')}</span></div>
-            <div style={styles.row}><span>EMISSÃO:</span><span>{new Date(os.created_at).toLocaleDateString('pt-BR')}</span></div>
-            
-            <div style={styles.divider}></div>
-            <div>CLIENTE: {os.client_name}</div>
-            {os.client_phone && <div>TEL: {os.client_phone}</div>}
-            
-            <div style={styles.divider}></div>
-            <div style={styles.bold}>EQUIPAMENTO:</div>
-            <div>{os.equipment}</div>
-            
-            {/* Campos Dinâmicos */}
-            <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'5px'}}>
-                {custom_fields && custom_fields.map((f, i) => (
-                    <div key={i} style={{marginRight:'5px'}}><span style={styles.bold}>{f.label}:</span> {f.value}</div>
-                ))}
-            </div>
-
-            <div style={styles.divider}></div>
-            
-            {items.map(item => (
-                <div key={item.id} style={{marginBottom:'3px'}}>
-                    <div>{item.description}</div>
-                    <div style={{display:'flex', justifyContent:'flex-end', gap:'10px'}}>
-                        <span>{item.quantity} x {Number(item.unit_price).toFixed(2)}</span>
-                        <span style={styles.bold}>{Number(item.subtotal).toFixed(2)}</span>
+        <div style={{minHeight:'100vh', background:'#525659', paddingBottom:'50px'}}>
+            {/* TOOLBAR (Não sai na impressão) */}
+            <div className="no-print" style={styles.toolbar}>
+                <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
+                    <button onClick={() => navigate(-1)} style={styles.btnBack}>
+                        <ArrowLeft size={18} /> Voltar
+                    </button>
+                    
+                    <div style={{display:'flex', gap:'5px', background:'#222', padding:'4px', borderRadius:'6px'}}>
+                        <button onClick={() => changeMode('thermal')} style={{...styles.modeBtn, background: mode === 'thermal' ? '#666' : 'transparent'}} title="Impressora Térmica">
+                            <Smartphone size={16}/> 80mm
+                        </button>
+                        <button onClick={() => changeMode('a4')} style={{...styles.modeBtn, background: mode === 'a4' ? '#666' : 'transparent'}} title="Folha A4 Normal">
+                            <FileText size={16}/> A4
+                        </button>
+                        <button onClick={() => changeMode('a5_landscape')} style={{...styles.modeBtn, background: mode === 'a5_landscape' ? '#666' : 'transparent'}} title="Meia Folha Deitada">
+                            <FileText size={16} style={{transform:'rotate(90deg)'}}/> A5
+                        </button>
                     </div>
                 </div>
-            ))}
-            
-            <div style={styles.divider}></div>
-            <div style={{...styles.row, fontSize:'14px', ...styles.bold}}>
-                <span>TOTAL:</span><span>R$ {Number(os.total_amount).toFixed(2)}</span>
+                
+                <button onClick={handlePrint} style={styles.btnPrint}>
+                    <Printer size={18} /> IMPRIMIR
+                </button>
             </div>
 
-            {/* NOVOS CAMPOS: OBSERVAÇÃO E GARANTIA */}
-            {(company?.os_observation_message) && (
-                <div style={{marginTop:'10px'}}>
-                    <div style={styles.sectionTitle}>OBSERVAÇÕES:</div>
-                    <div style={{fontSize:'10px', whiteSpace:'pre-wrap'}}>{company.os_observation_message}</div>
-                </div>
-            )}
-
-            {(company?.os_warranty_terms) && (
-                <div style={{marginTop:'5px'}}>
-                    <div style={styles.sectionTitle}>GARANTIA:</div>
-                    <div style={{fontSize:'10px', whiteSpace:'pre-wrap'}}>{company.os_warranty_terms}</div>
-                </div>
-            )}
-
-            <div style={{marginTop:'15px', ...styles.center, fontSize:'10px'}}>
-                {company?.footer_message || 'Obrigado pela preferência!'}
+            {/* PAPEL DE VISUALIZAÇÃO */}
+            <div style={styles.paperWrapper}>
+                <LayoutComponent data={data} mode={mode} />
             </div>
-            
-            <style>{`@media print { @page { margin: 0; } body { margin: 5px; } }`}</style>
+
+            {/* CSS DE IMPRESSÃO GLOBAL */}
+            <style>{`
+                @media print {
+                    .no-print { display: none !important; }
+                    body { background: white !important; margin: 0; padding: 0; }
+                    #root { width: 100%; }
+                    div[class*="paperWrapper"] { padding: 0 !important; display: block !important; }
+                    div[style*="box-shadow"] { box-shadow: none !important; margin: 0 !important; }
+                }
+            `}</style>
         </div>
     );
 }
 
-// ==========================================
-// LAYOUT 2: A4 / A5 (COMPACTADO)
-// ==========================================
-function LayoutA4({ data }) {
-    const { os, items, company, custom_fields } = data;
+// Estilos Gerais
+const styles = {
+    loading: { display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', color:'white', background:'#525659' },
+    error: { padding:'40px', textAlign:'center', color:'white' },
+    toolbar: {
+        position: 'sticky', top: 0, zIndex: 1000,
+        background: '#323639', padding: '10px 20px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        boxShadow: '0 2px 10px rgba(0,0,0,0.3)', marginBottom: '20px'
+    },
+    btnBack: {
+        background: 'transparent', border: '1px solid #666', color: '#eee',
+        padding: '8px 15px', borderRadius: '4px', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px'
+    },
+    modeBtn: {
+        border:'none', color:'white', padding:'6px 12px', borderRadius:'4px', 
+        cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', fontSize:'12px'
+    },
+    btnPrint: {
+        background: '#3b82f6', border: 'none', color: 'white',
+        padding: '8px 20px', borderRadius: '4px', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold'
+    },
+    paperWrapper: {
+        display: 'flex', justifyContent: 'center', paddingBottom: '50px'
+    }
+};
 
-    // CSS Inline Ajustado para Caber em 1 Página
-    const styles = {
-        page: { fontFamily: 'Helvetica, Arial, sans-serif', width: '100%', maxWidth: '210mm', margin: '0 auto', color: '#111', lineHeight: '1.3' },
-        
-        // Header Compacto
-        header: { display: 'flex', justifyContent: 'space-between', marginBottom: '10px', paddingBottom: '8px', borderBottom: '2px solid #333' },
-        companyInfo: { flex: 1 },
-        osInfo: { textAlign: 'right' },
-        h1: { margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#000' }, // Reduzido de 24
-        
-        // Seções Compactas
-        section: { marginBottom: '10px' }, // Reduzido de 15
-        h2: { margin: '0 0 4px 0', fontSize: '13px', fontWeight: 'bold', backgroundColor: '#f0f0f0', padding: '4px 8px', borderLeft:'4px solid #333' }, // Reduzido
-        
-        grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }, // Gap reduzido
-        
-        // Textos menores
-        label: { fontWeight: 'bold', fontSize: '10px', color: '#555', textTransform: 'uppercase' },
-        value: { fontSize: '12px', borderBottom: '1px solid #eee', paddingBottom: '1px', display:'block', minHeight:'16px' },
-        
-        // Tabela Compacta
-        table: { width: '100%', borderCollapse: 'collapse', marginTop: '5px' },
-        th: { textAlign: 'left', borderBottom: '2px solid #000', padding: '4px', fontSize: '10px', textTransform: 'uppercase' },
-        td: { borderBottom: '1px solid #ddd', padding: '4px', fontSize: '11px' },
-        
-        totalRow: { display: 'flex', justifyContent: 'flex-end', marginTop: '8px', borderTop: '2px solid #000', paddingTop: '8px' },
-        
-        // Rodapé Compacto
-        footer: { marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', textAlign: 'center' }, // Margem reduzida
-        signatureLine: { borderTop: '1px solid #000', marginTop: '20px', paddingTop: '4px', fontSize: '10px' },
-        legal: { marginTop: '10px', fontSize: '9px', color: '#666', textAlign: 'center', borderTop: '1px solid #eee', paddingTop: '4px' },
-        
-        textBox: { 
-            border: '1px solid #ddd', 
-            borderRadius: '4px',
-            padding: '6px', 
-            fontSize: '10px', 
-            backgroundColor: '#fcfcfc',
-            marginTop: '2px',
-            whiteSpace: 'pre-wrap'
-        }
+// ==================================================================================
+// LAYOUT 1: TÉRMICO (80mm)
+// ==================================================================================
+function LayoutThermal({ data }) {
+    const { os, items, company, custom_fields } = data;
+    
+    const s = {
+        container: { fontFamily: 'monospace', width: '80mm', padding: '10px', background: 'white', fontSize: '11px', color: '#000', boxShadow: '0 0 10px rgba(0,0,0,0.5)', margin:'0 auto' },
+        center: { textAlign: 'center' },
+        bold: { fontWeight: 'bold' },
+        line: { borderBottom: '1px dashed #000', margin: '5px 0' },
+        row: { display: 'flex', justifyContent: 'space-between' }
     };
 
     return (
-        <div style={styles.page}>
-            {/* CABEÇALHO */}
-            <div style={styles.header}>
-                <div style={styles.companyInfo}>
-                    <div style={styles.h1}>{company?.name || 'Nome da Empresa'}</div>
-                    <div style={{fontSize:'11px', marginTop:'4px'}}>
-                        {company?.address}<br/>
-                        {company?.phone} | {company?.email_contact} {company?.document ? `| CNPJ: ${company.document}` : ''}
-                    </div>
-                </div>
-                <div style={styles.osInfo}>
-                    <div style={{fontSize:'24px', fontWeight:'bold', color:'#333'}}>OS #{String(os.id).padStart(6,'0')}</div>
-                    <div style={{fontSize:'11px'}}>Data: {new Date(os.created_at).toLocaleDateString('pt-BR')}</div>
-                    <div style={{fontSize:'11px'}}>Hora: {new Date(os.created_at).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</div>
-                    <div style={{marginTop:'4px', padding:'2px 6px', background:'#eee', borderRadius:'4px', display:'inline-block', fontWeight:'bold', fontSize:'10px', textTransform:'uppercase'}}>
-                        Status: {os.status === 'open' ? 'Aberta' : os.status === 'completed' ? 'Finalizada' : os.status}
-                    </div>
-                </div>
+        <div style={s.container}>
+            <div style={s.center}>
+                {/* Logo se existir */}
+                {company?.logo_url && <img src={company.logo_url} alt="Logo" style={{maxHeight:'50px', maxWidth:'100%', marginBottom:'5px'}} />}
+                <div style={{fontSize:'13px', fontWeight:'bold', textTransform:'uppercase'}}>{company?.name || 'SUA EMPRESA'}</div>
+                {company?.document && <div>CNPJ: {company.document}</div>}
+                {company?.phone && <div>Tel: {company.phone}</div>}
+                <div style={{fontSize:'10px'}}>{company?.address}</div>
             </div>
-
-            {/* DADOS DO CLIENTE */}
-            <div style={styles.section}>
-                <div style={styles.h2}>Dados do Cliente</div>
-                <div style={styles.grid}>
-                    <div>
-                        <span style={styles.label}>Nome:</span>
-                        <span style={styles.value}>{os.client_name}</span>
-                    </div>
-                    <div>
-                        <span style={styles.label}>Telefone / Celular:</span>
-                        <span style={styles.value}>{os.client_phone || os.phone || '-'}</span>
-                    </div>
-                    <div>
-                        <span style={styles.label}>Email:</span>
-                        <span style={styles.value}>{os.client_email || '-'}</span>
-                    </div>
-                    <div>
-                        <span style={styles.label}>Documento:</span>
-                        <span style={styles.value}>{os.client_document || '-'}</span>
-                    </div>
-                    <div style={{gridColumn: 'span 2'}}>
-                        <span style={styles.label}>Endereço:</span>
-                        <span style={styles.value}>
-                            {os.address ? `${os.address}, ${os.city || ''} - ${os.state || ''}` : '-'}
-                        </span>
-                    </div>
-                </div>
-            </div>
-
-            {/* DADOS DO EQUIPAMENTO / SERVIÇO */}
-            <div style={styles.section}>
-                <div style={styles.h2}>Detalhes do Equipamento / Serviço</div>
-                <div style={styles.grid}>
-                    <div style={{gridColumn: 'span 2'}}>
-                        <span style={styles.label}>Equipamento / Veículo:</span>
-                        <span style={styles.value}>{os.equipment}</span>
-                    </div>
-                    
-                    {custom_fields && custom_fields.map(f => (
-                        <div key={f.id}>
-                            <span style={styles.label}>{f.label}:</span>
-                            <span style={styles.value}>{f.value || '-'}</span>
+            
+            <div style={s.line}></div>
+            <div style={s.row}><span>OS: {String(os.id).padStart(6,'0')}</span><span>{new Date(os.created_at).toLocaleDateString()}</span></div>
+            
+            <div style={s.line}></div>
+            <div style={s.bold}>CLIENTE</div>
+            <div>{os.client_name}</div>
+            {os.client_phone && <div>Tel: {os.client_phone}</div>}
+            
+            <div style={s.line}></div>
+            <div style={s.bold}>EQUIPAMENTO / SERVIÇO</div>
+            <div>{os.equipment}</div>
+            {/* CAMPOS EXTRAS DINÂMICOS */}
+            {custom_fields?.length > 0 && (
+                <div style={{marginTop:'3px'}}>
+                    {custom_fields.map((f, i) => (
+                        <div key={i} style={{fontSize:'10px'}}>
+                            <strong>{f.label}:</strong> {f.value}
                         </div>
                     ))}
+                </div>
+            )}
+            
+            {os.description && (
+                <div style={{background:'#eee', padding:'4px', marginTop:'4px', fontSize:'10px', borderRadius:'2px'}}>
+                    {os.description}
+                </div>
+            )}
 
-                    <div style={{gridColumn: 'span 2', marginTop:'4px'}}>
-                        <span style={styles.label}>Relato do Problema / Solicitação:</span>
-                        <div style={{...styles.value, minHeight:'30px', height:'auto', border:'1px solid #eee', padding:'4px', background:'#fbfbfb'}}>
-                            {os.description}
+            <div style={s.line}></div>
+            <div style={s.bold}>ITENS</div>
+            {items?.map((item, i) => (
+                <div key={i} style={{display:'flex', justifyContent:'space-between', marginBottom:'2px'}}>
+                    <div style={{flex:1}}>{parseFloat(item.quantity)}x {item.description}</div>
+                    <div style={s.bold}>{Number(item.subtotal).toFixed(2)}</div>
+                </div>
+            ))}
+
+            <div style={s.line}></div>
+            <div style={{...s.row, fontSize:'13px', fontWeight:'bold'}}>
+                <span>TOTAL:</span>
+                <span>R$ {Number(os.total_amount).toFixed(2)}</span>
+            </div>
+
+            {company?.os_observation_message && (
+                <div style={{marginTop:'10px', fontSize:'10px'}}>
+                    <strong>OBS:</strong> {company.os_observation_message}
+                </div>
+            )}
+
+            <div style={{marginTop:'20px', textAlign:'center', fontSize:'10px'}}>
+                __________________________<br/>
+                Assinatura
+            </div>
+
+            <style>{`@media print { @page { margin: 0; } }`}</style>
+        </div>
+    );
+}
+
+// ==================================================================================
+// LAYOUT 2: A4 (RETRATO) & A5 (PAISAGEM)
+// ==================================================================================
+function LayoutStandard({ data }) {
+    return <BaseLayout data={data} paperSize="a4" />;
+}
+
+function LayoutA5Landscape({ data }) {
+    return <BaseLayout data={data} paperSize="a5_landscape" />;
+}
+
+function BaseLayout({ data, paperSize }) {
+    const { os, items, company, custom_fields } = data;
+    const isA5 = paperSize === 'a5_landscape';
+
+    // Configurações de estilo baseadas no tamanho do papel
+    const pageStyle = {
+        fontFamily: 'Helvetica, Arial, sans-serif',
+        background: 'white',
+        color: '#000',
+        lineHeight: '1.3',
+        margin: '0 auto',
+        // Medidas exatas para impressão
+        width: isA5 ? '210mm' : '210mm', // Na tela ambos tem largura similar
+        minHeight: isA5 ? '148mm' : '297mm',
+        padding: isA5 ? '8mm' : '10mm',
+        fontSize: isA5 ? '10px' : '11px', 
+        boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+        overflow: 'hidden'
+    };
+
+    const borderStyle = '1px solid #ccc';
+    const headerBg = '#f3f4f6';
+
+    return (
+        <div style={pageStyle}>
+            {/* CABEÇALHO */}
+            <div style={{display:'flex', justifyContent:'space-between', borderBottom:'2px solid #000', paddingBottom:'10px', marginBottom:'10px'}}>
+                <div style={{display:'flex', gap:'15px', alignItems:'center'}}>
+                    {company?.logo_url && (
+                        <img src={company.logo_url} alt="Logo" style={{height: isA5 ? '40px' : '60px', objectFit:'contain'}} />
+                    )}
+                    <div>
+                        <h1 style={{margin:0, fontSize: isA5 ? '16px' : '20px', textTransform:'uppercase'}}>{company?.name || 'SUA EMPRESA'}</h1>
+                        <div style={{fontSize: isA5 ? '9px' : '10px', color:'#444', marginTop:'2px'}}>
+                            {company?.address} <br/>
+                            {company?.phone && <span>Tel: {company.phone}</span>} 
+                            {company?.email_contact && <span> | {company.email_contact}</span>}
+                            {company?.document && <span> | CNPJ: {company.document}</span>}
                         </div>
+                    </div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                    <div style={{fontSize: isA5 ? '20px' : '24px', fontWeight:'bold'}}>OS N° {String(os.id).padStart(6,'0')}</div>
+                    <div style={{fontSize: isA5 ? '10px' : '11px'}}>Emissão: {new Date(os.created_at).toLocaleDateString()}</div>
+                    <div style={{
+                        marginTop:'5px', padding:'2px 8px', background:'#eee', borderRadius:'4px', 
+                        display:'inline-block', fontWeight:'bold', textTransform:'uppercase', fontSize:'10px'
+                    }}>
+                        {os.status === 'open' ? 'Aberta' : os.status === 'completed' ? 'Finalizada' : os.status}
                     </div>
                 </div>
             </div>
 
-            {/* ITENS E SERVIÇOS */}
-            <div style={styles.section}>
-                <div style={styles.h2}>Produtos e Serviços</div>
-                <table style={styles.table}>
-                    <thead>
-                        <tr>
-                            <th style={styles.th}>Descrição</th>
-                            <th style={{...styles.th, width:'50px', textAlign:'center'}}>Qtd</th>
-                            <th style={{...styles.th, width:'90px', textAlign:'right'}}>Valor Un.</th>
-                            <th style={{...styles.th, width:'90px', textAlign:'right'}}>Subtotal</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {items.map((item, idx) => (
-                            <tr key={item.id} style={{backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9'}}>
-                                <td style={styles.td}>{item.description}
-                                    {item.type === 'service' && <span style={{fontSize:'9px', background:'#eee', padding:'1px 4px', borderRadius:'3px', marginLeft:'6px'}}>Serviço</span>}
-                                </td>
-                                <td style={{...styles.td, textAlign:'center'}}>{item.quantity}</td>
-                                <td style={{...styles.td, textAlign:'right'}}>R$ {Number(item.unit_price).toFixed(2)}</td>
-                                <td style={{...styles.td, textAlign:'right', fontWeight:'bold'}}>R$ {Number(item.subtotal).toFixed(2)}</td>
-                            </tr>
-                        ))}
-                        {items.length === 0 && <tr><td colSpan="4" style={{...styles.td, textAlign:'center', color:'#999'}}>Nenhum item lançado.</td></tr>}
-                    </tbody>
-                </table>
+            {/* GRID DE DADOS (CLIENTE E EQUIPAMENTO) */}
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom:'10px'}}>
+                
+                {/* DADOS CLIENTE */}
+                <div style={{border: borderStyle, borderRadius:'4px', padding:'8px'}}>
+                    <div style={{background: headerBg, margin:'-8px -8px 5px -8px', padding:'4px 8px', fontWeight:'bold', fontSize:'10px', borderBottom: borderStyle}}>
+                        DADOS DO CLIENTE
+                    </div>
+                    <div style={{display:'grid', gridTemplateColumns:'auto 1fr', gap:'2px 10px'}}>
+                        <strong>Cliente:</strong> <span>{os.client_name}</span>
+                        <strong>Doc:</strong> <span>{os.client_document || '-'}</span>
+                        <strong>Contato:</strong> <span>{os.client_phone || '-'}</span>
+                        <strong>Endereço:</strong> <span>{os.address || '-'}</span>
+                    </div>
+                </div>
+
+                {/* DADOS EQUIPAMENTO / CAMPOS EXTRAS */}
+                <div style={{border: borderStyle, borderRadius:'4px', padding:'8px'}}>
+                    <div style={{background: headerBg, margin:'-8px -8px 5px -8px', padding:'4px 8px', fontWeight:'bold', fontSize:'10px', borderBottom: borderStyle}}>
+                        EQUIPAMENTO / DETALHES
+                    </div>
+                    <div style={{display:'grid', gridTemplateColumns:'auto 1fr', gap:'2px 10px'}}>
+                        <strong>Equipamento:</strong> <span style={{fontWeight:'bold'}}>{os.equipment}</span>
+                        {/* Renderiza APENAS campos que existem */}
+                        {custom_fields && custom_fields.length > 0 ? (
+                            custom_fields.map(f => (
+                                <div key={f.id} style={{display:'contents'}}>
+                                    <strong>{f.label}:</strong> <span>{f.value || '-'}</span>
+                                </div>
+                            ))
+                        ) : (
+                            /* Fallback se não tiver campos personalizados mas tiver os antigos */
+                            <>
+                                {os.identifier && <><strong >Identificador:</strong> <span>{os.identifier}</span></>}
+                                {os.mileage && <strong>KM/Medidor:</strong>}{os.mileage && <span>{os.mileage}</span>}
+                            </>
+                        )}
+                    </div>
+                </div>
             </div>
+
+            {/* DESCRIÇÃO */}
+            <div style={{border: borderStyle, borderRadius:'4px', padding:'8px', marginBottom:'10px', background:'#fdfdfd'}}>
+                <strong style={{display:'block', fontSize:'10px', marginBottom:'2px', color:'#555', textTransform:'uppercase'}}>Descrição do Problema / Solicitação:</strong>
+                <div style={{whiteSpace:'pre-wrap', minHeight:'20px'}}>{os.description}</div>
+            </div>
+
+            {/* TABELA DE ITENS */}
+            <table style={{width:'100%', borderCollapse:'collapse', marginBottom:'10px', fontSize: isA5 ? '10px' : '11px'}}>
+                <thead>
+                    <tr style={{background: headerBg}}>
+                        <th style={{border: borderStyle, padding:'4px', textAlign:'left'}}>Descrição do Produto / Serviço</th>
+                        <th style={{border: borderStyle, padding:'4px', width:'50px', textAlign:'center'}}>Qtd</th>
+                        <th style={{border: borderStyle, padding:'4px', width:'90px', textAlign:'right'}}>Vl. Unit</th>
+                        <th style={{border: borderStyle, padding:'4px', width:'90px', textAlign:'right'}}>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {items.length === 0 && <tr><td colSpan="4" style={{border: borderStyle, padding:'10px', textAlign:'center', color:'#999'}}>Nenhum item lançado.</td></tr>}
+                    {items.map((item, i) => (
+                        <tr key={i}>
+                            <td style={{border: borderStyle, padding:'4px'}}>{item.description}</td>
+                            <td style={{border: borderStyle, padding:'4px', textAlign:'center'}}>{parseFloat(item.quantity)}</td>
+                            <td style={{border: borderStyle, padding:'4px', textAlign:'right'}}>R$ {Number(item.unit_price).toFixed(2)}</td>
+                            <td style={{border: borderStyle, padding:'4px', textAlign:'right', fontWeight:'bold'}}>R$ {Number(item.subtotal).toFixed(2)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
 
             {/* TOTAIS */}
-            <div style={styles.totalRow}>
-                <div style={{textAlign:'right'}}>
-                    <div style={{fontSize:'12px', color:'#666'}}>Total Bruto: R$ {Number(os.total_amount).toFixed(2)}</div>
-                    <div style={{fontSize:'18px', fontWeight:'bold', color:'#000', marginTop:'2px'}}>
-                        TOTAL A PAGAR: R$ {Number(os.total_amount).toFixed(2)}
+            <div style={{display:'flex', justifyContent:'flex-end', marginBottom:'10px'}}>
+                <div style={{width:'200px', border: borderStyle, padding:'8px', borderRadius:'4px', background:'#f9f9f9'}}>
+                    {Number(os.discount) > 0 && (
+                        <div style={{display:'flex', justifyContent:'space-between', color:'#d32f2f', fontSize:'10px', marginBottom:'2px'}}>
+                            <span>Desconto:</span> <span>- R$ {Number(os.discount).toFixed(2)}</span>
+                        </div>
+                    )}
+                    <div style={{display:'flex', justifyContent:'space-between', fontWeight:'bold', fontSize:'14px', borderTop:'1px solid #ccc', paddingTop:'4px'}}>
+                        <span>TOTAL:</span> <span>R$ {Number(os.total_amount).toFixed(2)}</span>
                     </div>
                 </div>
             </div>
 
-            {/* NOVAS SEÇÕES: OBSERVAÇÕES E GARANTIA */}
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px', marginTop:'10px'}}>
+            {/* OBSERVAÇÕES E RODAPÉ */}
+            <div style={{display:'grid', gridTemplateColumns: isA5 ? '1fr 1fr' : '1fr', gap:'10px', marginBottom:'15px'}}>
                 {company?.os_observation_message && (
-                    <div>
-                        <div style={styles.label}>Observações:</div>
-                        <div style={styles.textBox}>
-                            {company.os_observation_message}
-                        </div>
+                    <div style={{border: borderStyle, borderRadius:'4px', padding:'6px', fontSize:'9px'}}>
+                        <strong style={{textTransform:'uppercase'}}>Observações:</strong>
+                        <p style={{margin:0, whiteSpace:'pre-wrap'}}>{company.os_observation_message}</p>
                     </div>
                 )}
-                
                 {company?.os_warranty_terms && (
-                    <div>
-                        <div style={styles.label}>Termos de Garantia:</div>
-                        <div style={styles.textBox}>
-                            {company.os_warranty_terms}
-                        </div>
+                    <div style={{border: borderStyle, borderRadius:'4px', padding:'6px', fontSize:'9px'}}>
+                        <strong style={{textTransform:'uppercase'}}>Garantia:</strong>
+                        <p style={{margin:0, whiteSpace:'pre-wrap'}}>{company.os_warranty_terms}</p>
                     </div>
                 )}
             </div>
 
             {/* ASSINATURAS */}
-            <div style={styles.footer}>
-                <div>
-                    <div style={styles.signatureLine}>Assinatura do Técnico / Responsável</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'40px', marginTop:'auto', paddingTop:'10px'}}>
+                <div style={{textAlign:'center'}}>
+                    <div style={{borderTop:'1px solid #000', width:'80%', margin:'0 auto', paddingTop:'4px', fontSize:'10px'}}>Técnico Responsável</div>
                 </div>
-                <div>
-                    <div style={styles.signatureLine}>Assinatura do Cliente ({os.client_name})</div>
+                <div style={{textAlign:'center'}}>
+                    <div style={{borderTop:'1px solid #000', width:'80%', margin:'0 auto', paddingTop:'4px', fontSize:'10px'}}>Cliente: {os.client_name}</div>
                 </div>
             </div>
 
-            {/* RODAPÉ LEGAL */}
-            <div style={styles.legal}>
-                {company?.footer_message || 'Garantia de 90 dias para serviços prestados. Agradecemos a preferência!'}
-                <br/>Gerado por Mini ERP Finance
+            <div style={{textAlign:'center', fontSize:'8px', color:'#666', marginTop:'15px', borderTop:'1px solid #eee', paddingTop:'5px'}}>
+                {company?.footer_message || 'Obrigado pela preferência!'}<br/>
+                Gerado em {new Date().toLocaleString()}
             </div>
 
+            {/* CSS DE PÁGINA ESPECÍFICO PARA IMPRESSÃO */}
             <style>{`
-                @media print { 
-                    @page { size: A4; margin: 5mm; } 
-                    body { -webkit-print-color-adjust: exact; margin: 0; } 
+                @media print {
+                    @page { 
+                        size: ${isA5 ? 'A5 landscape' : 'A4 portrait'}; 
+                        margin: 5mm; 
+                    }
+                    body { -webkit-print-color-adjust: exact; }
                 }
             `}</style>
         </div>

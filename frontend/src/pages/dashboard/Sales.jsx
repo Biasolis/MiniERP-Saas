@@ -1,317 +1,244 @@
-import { useEffect, useState, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
-import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
-import styles from './Sales.module.css';
 import { 
-    ShoppingCart, Plus, Trash2, Search, User, CheckCircle, 
-    DollarSign, CreditCard, Banknote, QrCode 
+    Plus, Search, Calendar, User, ArrowRight, 
+    Filter, Loader, ShoppingBag, Clock
 } from 'lucide-react';
 
 export default function Sales() {
-    const { addToast } = useContext(ToastContext);
-    
-    // Dados
-    const [products, setProducts] = useState([]);
-    const [clients, setClients] = useState([]);
-    const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const { addToast } = useContext(ToastContext);
+  
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Filtros
+  const [filters, setFilters] = useState({ 
+      client: '', 
+      startDate: '', 
+      endDate: '',
+      status: '' 
+  });
 
-    // Estado da Venda
-    const [cart, setCart] = useState([]);
-    const [selectedClient, setSelectedClient] = useState('');
-    const [searchTerm, setSearchTerm] = useState('');
-    
-    // Modal Checkout
-    const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-    const [checkoutData, setCheckoutData] = useState({
-        payment_method: 'money', // money, credit, debit, pix
-        discount: '',
-        amount_paid: '',
-        installments: 1, // <--- NOVO: Parcelas
-        notes: ''
-    });
+  useEffect(() => {
+    loadSales();
+  }, []);
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    async function loadData() {
-        try {
-            const [prodRes, cliRes] = await Promise.all([
-                api.get('/products'),
-                api.get('/clients')
-            ]);
-            setProducts(prodRes.data); 
-            setClients(cliRes.data);
-        } catch (error) {
-            addToast({ type: 'error', title: 'Erro ao carregar dados.' });
-        } finally {
-            setLoading(false);
-        }
+  const loadSales = async () => {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams(filters).toString();
+      const res = await api.get(`/sales?${query}`);
+      setSales(res.data);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    // --- LÓGICA DO CARRINHO ---
-    const addToCart = (product) => {
-        const existingItem = cart.find(item => item.product_id === product.id);
-        
-        if (existingItem) {
-            if (product.type === 'product' && existingItem.quantity + 1 > product.stock) {
-                return addToast({ type: 'error', title: 'Estoque insuficiente.' });
-            }
-            setCart(cart.map(item => 
-                item.product_id === product.id 
-                ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * item.unit_price }
-                : item
-            ));
-        } else {
-            if (product.type === 'product' && product.stock <= 0) {
-                return addToast({ type: 'error', title: 'Produto sem estoque.' });
-            }
-            setCart([...cart, {
-                product_id: product.id,
-                name: product.name,
-                unit_price: Number(product.sale_price),
-                quantity: 1,
-                subtotal: Number(product.sale_price),
-                type: product.type,
-                stock: product.stock 
-            }]);
-        }
-    };
+  const handleNewSale = async () => {
+    try {
+      const res = await api.post('/sales', { 
+          client_id: null, 
+          status: 'draft', 
+          total_amount: 0 
+      });
+      navigate(`/dashboard/sales/${res.data.id}`);
+    } catch (error) {
+      addToast({ type: 'error', title: 'Erro', message: 'Não foi possível iniciar a venda' });
+    }
+  };
 
-    const removeFromCart = (productId) => {
-        setCart(cart.filter(item => item.product_id !== productId));
-    };
+  // Formatação
+  const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const formatDate = (dateString) => new Date(dateString).toLocaleDateString('pt-BR');
+  
+  const getStatusBadge = (status) => {
+      const config = {
+          'draft': { label: 'Rascunho', color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
+          'open': { label: 'Em Aberto', color: '#0369a1', bg: '#e0f2fe', border: '#bae6fd' },
+          'completed': { label: 'Concluída', color: '#15803d', bg: '#dcfce7', border: '#86efac' },
+          'canceled': { label: 'Cancelada', color: '#b91c1c', bg: '#fee2e2', border: '#fca5a5' },
+      };
+      const curr = config[status] || config['draft'];
+      return (
+          <span style={{
+              backgroundColor: curr.bg, color: curr.color, border: `1px solid ${curr.border}`,
+              padding: '4px 12px', borderRadius: '20px', 
+              fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px'
+          }}>
+              {curr.label}
+          </span>
+      );
+  };
 
-    const updateQuantity = (productId, newQty) => {
-        if (newQty < 1) return;
-        const item = cart.find(i => i.product_id === productId);
-        if (item.type === 'product' && newQty > item.stock) {
-            return addToast({ type: 'error', title: `Máximo disponível: ${item.stock}` });
-        }
-        setCart(cart.map(item => 
-            item.product_id === productId 
-            ? { ...item, quantity: newQty, subtotal: newQty * item.unit_price }
-            : item
-        ));
-    };
+  return (
+    <DashboardLayout>
+      {/* CABEÇALHO */}
+      <div style={styles.header}>
+        <div>
+            <h1 style={styles.title}>Vendas & Pedidos</h1>
+            <p style={styles.subtitle}>Consulte e gerencie as suas negociações</p>
+        </div>
+        <button onClick={handleNewSale} style={styles.btnPrimary}>
+            <Plus size={18} /> Nova Venda
+        </button>
+      </div>
 
-    // --- CHECKOUT ---
-    const openCheckout = () => {
-        if (cart.length === 0) return addToast({ type: 'error', title: 'Carrinho vazio.' });
-        const total = cart.reduce((acc, item) => acc + item.subtotal, 0);
-        setCheckoutData({
-            payment_method: 'money',
-            discount: '',
-            amount_paid: '', 
-            installments: 1,
-            notes: ''
-        });
-        setIsCheckoutOpen(true);
-    };
-
-    const handleFinishSale = async (e) => {
-        e.preventDefault();
-        try {
-            const payload = {
-                client_id: selectedClient || null,
-                items: cart.map(item => ({
-                    product_id: item.product_id,
-                    quantity: item.quantity,
-                    unit_price: item.unit_price
-                })),
-                ...checkoutData,
-                discount: Number(checkoutData.discount) || 0,
-                amount_paid: Number(checkoutData.amount_paid) || 0,
-                installments: Number(checkoutData.installments) || 1 // Envia para o backend
-            };
-
-            await api.post('/sales', payload);
-            addToast({ type: 'success', title: 'Venda realizada com sucesso!' });
+      {/* BARRA DE FILTROS */}
+      <div style={styles.filterContainer}>
+        <div style={styles.filterGroup}>
+            <div style={styles.inputWrapper}>
+                <User size={16} color="#94a3b8" />
+                <input 
+                    placeholder="Buscar Cliente..." 
+                    value={filters.client} 
+                    onChange={e => setFilters({...filters, client: e.target.value})} 
+                    style={styles.input} 
+                />
+            </div>
             
-            setCart([]);
-            setSelectedClient('');
-            setIsCheckoutOpen(false);
-            loadData(); 
-        } catch (error) {
-            console.error(error);
-            addToast({ type: 'error', title: error.response?.data?.message || 'Erro ao finalizar venda.' });
-        }
-    };
-
-    // Cálculos
-    const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    const cartTotal = cart.reduce((acc, item) => acc + item.subtotal, 0);
-    const finalTotal = Math.max(0, cartTotal - (Number(checkoutData.discount) || 0));
-    const change = Math.max(0, (Number(checkoutData.amount_paid) || 0) - finalTotal);
-
-    // Helper para saber se mostra parcelas
-    const showInstallments = ['credit', 'debit'].includes(checkoutData.payment_method);
-
-    return (
-        <DashboardLayout>
-            <div className={styles.container}>
-                
-                {/* COLUNA PRODUTOS */}
-                <div className={styles.productsCol}>
-                    <div className={styles.header}>
-                        <h2>Ponto de Venda</h2>
-                        <div className={styles.searchBox}>
-                            <Search size={20} />
-                            <input placeholder="Buscar produto..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                        </div>
-                    </div>
-
-                    <div className={styles.productList}>
-                        {loading ? <p>Carregando...</p> : filteredProducts.map(product => (
-                            <div key={product.id} className={styles.productCard} onClick={() => addToCart(product)}>
-                                <div className={styles.prodInfo}>
-                                    <span className={styles.prodName}>{product.name}</span>
-                                    <div className={styles.prodMeta}>
-                                        <span className={styles.prodPrice}>R$ {Number(product.sale_price).toFixed(2)}</span>
-                                        {product.type === 'product' && (
-                                            <span className={`${styles.stockBadge} ${product.stock <= 0 ? styles.noStock : ''}`}>
-                                                Estoque: {product.stock}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                                <button className={styles.btnAdd}><Plus size={18}/></button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* COLUNA CARRINHO */}
-                <div className={styles.cartCol}>
-                    <div className={styles.clientSelect}>
-                        <User size={20} color="#6b7280" />
-                        <select value={selectedClient} onChange={e => setSelectedClient(e.target.value)}>
-                            <option value="">-- Cliente Avulso --</option>
-                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                    </div>
-
-                    <div className={styles.cartItems}>
-                        {cart.length === 0 ? (
-                            <div className={styles.emptyCart}><ShoppingCart size={48} color="#e5e7eb" /><p>Carrinho vazio</p></div>
-                        ) : (
-                            cart.map(item => (
-                                <div key={item.product_id} className={styles.cartItem}>
-                                    <div className={styles.cartItemInfo}>
-                                        <span className={styles.cartItemName}>{item.name}</span>
-                                        <span className={styles.cartItemPrice}>R$ {item.unit_price.toFixed(2)}</span>
-                                    </div>
-                                    <div className={styles.cartControls}>
-                                        <input type="number" value={item.quantity} onChange={e => updateQuantity(item.product_id, Number(e.target.value))} min="1"/>
-                                        <span className={styles.itemSubtotal}>R$ {item.subtotal.toFixed(2)}</span>
-                                        <button onClick={() => removeFromCart(item.product_id)} className={styles.btnRemove}><Trash2 size={16} /></button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-
-                    <div className={styles.cartFooter}>
-                        <div className={styles.totalRow}><span>Total</span><span>R$ {cartTotal.toFixed(2)}</span></div>
-                        <button className={styles.btnFinish} disabled={cart.length === 0} onClick={openCheckout}>
-                            <DollarSign size={20} /> Ir para Pagamento
-                        </button>
-                    </div>
-                </div>
+            <div style={styles.inputWrapper}>
+                <Calendar size={16} color="#94a3b8" />
+                <input 
+                    type="date" 
+                    value={filters.startDate} 
+                    onChange={e => setFilters({...filters, startDate: e.target.value})} 
+                    style={styles.input} 
+                />
             </div>
 
-            {/* MODAL CHECKOUT */}
-            <Modal isOpen={isCheckoutOpen} onClose={() => setIsCheckoutOpen(false)} title="Finalizar Venda">
-                <form onSubmit={handleFinishSale}>
-                    <div className={styles.checkoutGrid}>
+            <div style={styles.inputWrapper}>
+                <Filter size={16} color="#94a3b8" />
+                <select 
+                    value={filters.status} 
+                    onChange={e => setFilters({...filters, status: e.target.value})}
+                    style={styles.select}
+                >
+                    <option value="">Status: Todos</option>
+                    <option value="draft">Rascunho</option>
+                    <option value="open">Em Aberto</option>
+                    <option value="completed">Concluída</option>
+                </select>
+            </div>
+
+            <button onClick={loadSales} style={styles.btnSecondary}>
+                <Search size={16}/>
+            </button>
+        </div>
+      </div>
+
+      {/* LISTA DE CARTÕES (EM VEZ DE TABELA) */}
+      <div style={styles.listContainer}>
+        {loading ? (
+            <div style={{textAlign:'center', padding:'40px', color:'#64748b'}}>
+                <div style={{display:'flex', justifyContent:'center', alignItems:'center', gap:'10px'}}>
+                    <Loader size={24} className="spin" /> A carregar vendas...
+                </div>
+            </div>
+        ) : sales.length === 0 ? (
+            <div style={{textAlign:'center', padding:'40px', color:'#94a3b8', background:'white', borderRadius:'12px', border:'1px dashed #e2e8f0'}}>
+                <ShoppingBag size={40} style={{marginBottom:'10px', opacity:0.5}} />
+                <p>Nenhuma venda encontrada.</p>
+            </div>
+        ) : (
+            sales.map(sale => (
+                <div key={sale.id} style={styles.card} onClick={() => navigate(`/dashboard/sales/${sale.id}`)}>
+                    
+                    {/* Lado Esquerdo: Identificação e Cliente */}
+                    <div style={{flex: 1}}>
+                        <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'5px'}}>
+                            <span style={styles.saleId}>#{String(sale.id).padStart(6,'0')}</span>
+                            {getStatusBadge(sale.status)}
+                        </div>
                         
-                        {/* Resumo */}
-                        <div className={styles.checkoutSummary}>
-                            <div className={styles.summaryRow}><span>Subtotal:</span> <strong>R$ {cartTotal.toFixed(2)}</strong></div>
-                            <div className={styles.summaryRow} style={{color:'var(--primary-color)'}}><span>Total a Pagar:</span> <strong style={{fontSize:'1.3rem'}}>R$ {finalTotal.toFixed(2)}</strong></div>
+                        <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                            <User size={16} color="#64748b" />
+                            <span style={{fontWeight:'600', color:'#1e293b', fontSize:'1rem'}}>
+                                {sale.client_name || 'Consumidor Final'}
+                            </span>
                         </div>
-
-                        {/* Forma de Pagamento */}
-                        <div className={styles.paymentMethods}>
-                            <label>Forma de Pagamento</label>
-                            <div className={styles.methodOptions}>
-                                <button type="button" className={`${styles.methodBtn} ${checkoutData.payment_method === 'money' ? styles.activeMethod : ''}`} onClick={() => setCheckoutData({...checkoutData, payment_method:'money'})}>
-                                    <Banknote size={20}/> Dinheiro
-                                </button>
-                                <button type="button" className={`${styles.methodBtn} ${checkoutData.payment_method === 'pix' ? styles.activeMethod : ''}`} onClick={() => setCheckoutData({...checkoutData, payment_method:'pix'})}>
-                                    <QrCode size={20}/> PIX
-                                </button>
-                                <button type="button" className={`${styles.methodBtn} ${checkoutData.payment_method === 'credit' ? styles.activeMethod : ''}`} onClick={() => setCheckoutData({...checkoutData, payment_method:'credit'})}>
-                                    <CreditCard size={20}/> Crédito
-                                </button>
-                                <button type="button" className={`${styles.methodBtn} ${checkoutData.payment_method === 'debit' ? styles.activeMethod : ''}`} onClick={() => setCheckoutData({...checkoutData, payment_method:'debit'})}>
-                                    <CreditCard size={20}/> Débito
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Inputs de Valores e Parcelas */}
-                        <div className={styles.inputsRow}>
-                            <div>
-                                <label>Desconto (R$)</label>
-                                <input 
-                                    type="number" className={styles.input} step="0.01" 
-                                    value={checkoutData.discount} 
-                                    onChange={e => setCheckoutData({...checkoutData, discount: e.target.value})} 
-                                    placeholder="0.00"
-                                />
-                            </div>
-
-                            {/* Se for dinheiro/pix, mostra valor recebido. Se for cartão, mostra parcelas. */}
-                            {!showInstallments ? (
-                                <div>
-                                    <label>Valor Recebido (R$)</label>
-                                    <input 
-                                        type="number" className={styles.input} step="0.01" 
-                                        value={checkoutData.amount_paid} 
-                                        onChange={e => setCheckoutData({...checkoutData, amount_paid: e.target.value})} 
-                                        placeholder="0.00"
-                                    />
-                                </div>
-                            ) : (
-                                <div>
-                                    <label>Parcelas</label>
-                                    <select 
-                                        className={styles.input} 
-                                        value={checkoutData.installments} 
-                                        onChange={e => setCheckoutData({...checkoutData, installments: e.target.value})}
-                                    >
-                                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(num => (
-                                            <option key={num} value={num}>
-                                                {num}x de R$ {(finalTotal / num).toFixed(2)}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Troco (Só aparece se for dinheiro e tiver troco) */}
-                        {!showInstallments && checkoutData.payment_method === 'money' && (
-                            <div className={styles.changeBox}>
-                                <span>Troco Estimado:</span>
-                                <strong style={{color: change > 0 ? '#10b981' : '#6b7280'}}>R$ {change.toFixed(2)}</strong>
-                            </div>
-                        )}
-
-                        <div style={{marginTop:'10px'}}>
-                            <label style={{display:'block', marginBottom:'5px', fontSize:'0.9rem', fontWeight:600}}>Observações</label>
-                            <input className={styles.input} placeholder="Opcional..." value={checkoutData.notes} onChange={e => setCheckoutData({...checkoutData, notes: e.target.value})} />
-                        </div>
-
-                        <button type="submit" className={styles.btnConfirm}>
-                            <CheckCircle size={20} /> Confirmar Venda
-                        </button>
                     </div>
-                </form>
-            </Modal>
-        </DashboardLayout>
-    );
+
+                    {/* Centro: Data */}
+                    <div style={styles.metaInfo}>
+                        <div style={{display:'flex', alignItems:'center', gap:'6px', color:'#64748b', fontSize:'0.85rem'}}>
+                            <Clock size={14} />
+                            {formatDate(sale.created_at)}
+                        </div>
+                    </div>
+
+                    {/* Lado Direito: Valor e Ação */}
+                    <div style={styles.amountAction}>
+                        <div style={{textAlign:'right'}}>
+                            <span style={{display:'block', fontSize:'0.75rem', color:'#64748b', textTransform:'uppercase'}}>Total</span>
+                            <span style={{fontSize:'1.1rem', fontWeight:'700', color:'#0f172a'}}>
+                                {formatCurrency(sale.total_amount)}
+                            </span>
+                        </div>
+                        <div style={styles.arrowBox}>
+                            <ArrowRight size={20} color="#3b82f6" />
+                        </div>
+                    </div>
+
+                </div>
+            ))
+        )}
+      </div>
+
+      <style>{`
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+      `}</style>
+    </DashboardLayout>
+  );
 }
+
+const styles = {
+    // Layout
+    header: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px' },
+    title: { color:'#1e293b', margin:0, fontSize:'1.5rem', fontWeight:'700' },
+    subtitle: { color:'#64748b', fontSize:'0.9rem', marginTop:'4px' },
+
+    // Botões
+    btnPrimary: { 
+        background:'#3b82f6', color:'white', border:'none', padding:'10px 20px', borderRadius:'8px', 
+        cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', fontWeight:'600', 
+        fontSize:'0.9rem', boxShadow:'0 2px 4px rgba(59, 130, 246, 0.3)', transition:'0.2s'
+    },
+    btnSecondary: { 
+        background:'#f8fafc', color:'#475569', border:'1px solid #cbd5e1', padding:'10px', borderRadius:'8px', 
+        cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'600', minWidth:'42px'
+    },
+
+    // Filtros
+    filterContainer: { background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 1px 2px rgba(0,0,0,0.05)', marginBottom:'20px', border:'1px solid #e2e8f0' },
+    filterGroup: { display:'flex', gap:'10px', alignItems:'center', flexWrap:'wrap' },
+    inputWrapper: { 
+        display:'flex', alignItems:'center', gap:'10px', background:'#f8fafc', 
+        padding:'8px 12px', borderRadius:'8px', border:'1px solid #e2e8f0', flex:1, minWidth:'180px' 
+    },
+    input: { border:'none', background:'transparent', outline:'none', width:'100%', fontSize:'0.9rem', color:'#334155' },
+    select: { border:'none', background:'transparent', outline:'none', width:'100%', fontSize:'0.9rem', color:'#334155', cursor:'pointer' },
+
+    // Lista e Cartões
+    listContainer: { display:'flex', flexDirection:'column', gap:'12px' },
+    card: { 
+        background:'white', padding:'16px 20px', borderRadius:'12px', 
+        border:'1px solid #e2e8f0', boxShadow:'0 1px 3px rgba(0,0,0,0.02)',
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        cursor:'pointer', transition:'all 0.2s ease', gap:'15px', flexWrap:'wrap'
+    },
+    // Estilos internos do cartão
+    saleId: { fontSize:'0.85rem', fontWeight:'700', color:'#64748b', background:'#f1f5f9', padding:'2px 6px', borderRadius:'4px' },
+    metaInfo: { display:'flex', flexDirection:'column', justifyContent:'center' },
+    amountAction: { display:'flex', alignItems:'center', gap:'15px', marginLeft:'auto' },
+    arrowBox: { 
+        width:'36px', height:'36px', borderRadius:'50%', background:'#eff6ff', 
+        display:'flex', alignItems:'center', justifyContent:'center', border:'1px solid #dbeafe'
+    }
+};

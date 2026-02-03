@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-// Importação das Rotas Existentes
+// Importação das Rotas
 const authRoutes = require('./routes/authRoutes');
 const tenantRoutes = require('./routes/tenantRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
@@ -28,10 +28,10 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const posRoutes = require('./routes/posRoutes');
 const planRoutes = require('./routes/planRoutes');
 const hrRoutes = require('./routes/hrRoutes');
-
-// --- NOVAS ROTAS (ADICIONE AQUI) ---
 const payrollRoutes = require('./routes/payrollRoutes');
-const employeePortalRoutes = require('./routes/employeePortalRoutes'); // Rota do Portal
+const employeePortalRoutes = require('./routes/employeePortalRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
+// const ticketRoutes = require('./routes/ticketRoutes'); 
 
 const app = express();
 
@@ -56,9 +56,15 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Configurar Rotas
+// --- CONFIGURAÇÃO DE ROTAS ---
+
 app.use('/api/auth', authRoutes);
-app.use('/api/tenants', tenantRoutes);
+
+// --- CORREÇÃO AQUI: Registrar singular E plural ---
+app.use('/api/tenants', tenantRoutes); // Para listas (Admin)
+app.use('/api/tenant', tenantRoutes);  // Para contexto da empresa logada (Configurações)
+// --------------------------------------------------
+
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/products', productRoutes);
@@ -73,17 +79,17 @@ app.use('/api/quotes', quoteRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/superadmin', superAdminRoutes);
+app.use('/api/admin', superAdminRoutes); 
 app.use('/api/pcp', pcpRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/pos', posRoutes);
 app.use('/api/plans', planRoutes);
 app.use('/api/hr', hrRoutes);
-
-// --- REGISTRO DAS NOVAS ROTAS ---
-app.use('/api/payroll', payrollRoutes); // Módulo de Folha
-app.use('/api/portal', employeePortalRoutes); // Módulo do Portal do Colaborador
+app.use('/api/categories', categoryRoutes);
+app.use('/api/payroll', payrollRoutes);
+app.use('/api/portal', employeePortalRoutes);
+// app.use('/api/tickets', ticketRoutes);
 
 // Rota de Health Check
 app.get('/health', (req, res) => {

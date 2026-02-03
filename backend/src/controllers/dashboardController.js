@@ -1,8 +1,20 @@
 const { query } = require('../config/db');
 
+// ==========================================
+// 1. DASHBOARD COMPLETO (Stats, Gráficos, OS)
+// ==========================================
 const getDashboardStats = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId;
+        // --- CORREÇÃO DE SEGURANÇA E COMPATIBILIDADE ---
+        // Tenta obter o ID de ambas as formas (snake_case do banco ou camelCase do token novo)
+        const tenantId = req.user.tenant_id || req.user.tenantId;
+
+        if (!tenantId) {
+            console.error("ERRO CRÍTICO: Tenant ID não encontrado na sessão.");
+            return res.status(400).json({ error: "Sessão inválida: Tenant ID ausente." });
+        }
+        // ------------------------------------------------
+
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0,0,0,0);
@@ -17,7 +29,6 @@ const getDashboardStats = async (req, res) => {
         `;
 
         // --- QUERY 2: GRÁFICO FINANCEIRO (Últimos 6 meses) ---
-        // Agrupa por Mês/Ano
         const financeChartQuery = `
             SELECT 
                 TO_CHAR(date, 'Mon/YY') as label,
@@ -69,7 +80,7 @@ const getDashboardStats = async (req, res) => {
             ORDER BY date DESC LIMIT 5
         `;
 
-        // Executa tudo em paralelo
+        // Executa todas as queries em paralelo para performance
         const [totals, financeChart, osDaily, osStatus, lowStock, recentTrans] = await Promise.all([
             query(totalsQuery, [tenantId, startOfMonth]),
             query(financeChartQuery, [tenantId]),
@@ -79,16 +90,17 @@ const getDashboardStats = async (req, res) => {
             query(recentTransQuery, [tenantId])
         ]);
 
-        // Processamento
-        const income = parseFloat(totals.rows[0].income);
-        const expense = parseFloat(totals.rows[0].expense);
+        // Processamento dos dados para o Frontend
+        const income = parseFloat(totals.rows[0]?.income || 0);
+        const expense = parseFloat(totals.rows[0]?.expense || 0);
 
-        // Mapeamento de Status OS
+        // Mapeamento de Status OS (Tradução)
         const osStatusMap = {
             'open': 'Abertas',
             'in_progress': 'Em Andamento',
             'completed': 'Finalizadas',
-            'waiting': 'Aguardando'
+            'waiting': 'Aguardando',
+            'canceled': 'Canceladas'
         };
 
         const osChartData = osStatus.rows.map(r => ({
@@ -123,8 +135,62 @@ const getDashboardStats = async (req, res) => {
 
     } catch (error) {
         console.error('Erro Dashboard Completo:', error);
-        return res.status(500).json({ message: 'Erro ao carregar dados.' });
+        return res.status(500).json({ message: 'Erro ao carregar dados do dashboard.' });
     }
 };
 
-module.exports = { getDashboardStats };
+// ==========================================
+// 2. ATIVIDADE RECENTE (Endpoint Leve)
+// ==========================================
+const getRecentActivity = async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id || req.user.tenantId;
+
+        if (!tenantId) return res.status(400).json({ error: "Tenant ID ausente." });
+
+        const result = await query(
+            `SELECT 'venda' as type, created_at, total_amount as value, id 
+             FROM sales WHERE tenant_id = $1 
+             ORDER BY created_at DESC LIMIT 5`,
+            [tenantId]
+        );
+        
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao carregar atividades' });
+    }
+};
+
+// ==========================================
+// 3. STATS SIMPLES (Topo do Dashboard)
+// ==========================================
+// Caso você precise de um endpoint rápido apenas para os cards do topo
+const getStats = async (req, res) => {
+    try {
+        const tenantId = req.user.tenant_id || req.user.tenantId;
+        
+        if (!tenantId) return res.status(400).json({ error: "Tenant ID ausente." });
+
+        const [clients, products, sales] = await Promise.all([
+            query('SELECT COUNT(*) FROM clients WHERE tenant_id = $1', [tenantId]),
+            query('SELECT COUNT(*) FROM products WHERE tenant_id = $1', [tenantId]),
+            query('SELECT SUM(total_amount) FROM sales WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL \'30 days\'', [tenantId])
+        ]);
+
+        res.json({
+            totalClients: parseInt(clients.rows[0]?.count || 0),
+            totalProducts: parseInt(products.rows[0]?.count || 0),
+            monthlyRevenue: parseFloat(sales.rows[0]?.sum || 0)
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao carregar stats simples' });
+    }
+};
+
+module.exports = { 
+    getDashboardStats,
+    getRecentActivity,
+    getStats 
+};

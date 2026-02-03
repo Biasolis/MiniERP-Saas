@@ -11,42 +11,49 @@ module.exports = async (req, res, next) => {
   const [, token] = authHeader.split(' ');
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'seusecretuperseguro123');
 
-    // --- CORREÇÃO: SUPORTE A COLABORADORES ---
-    if (decoded.role === 'employee') {
-        // Se for colaborador, confiamos no payload do token ou validamos na tabela correta
-        // O controller timeClockController já colocou o tenantId no payload
+    // --- CENÁRIO 1: ACESSO DE COLABORADOR (Portal) ---
+    // Colaboradores não estão na tabela 'users', então confiamos no token
+    if (decoded.role === 'employee' || decoded.role === 'support_user') {
         req.user = {
             id: decoded.id,
-            tenantId: decoded.tenantId, // Nota: No login geramos como tenantId (camelCase)
-            role: 'employee'
+            tenantId: decoded.tenantId,   // Formato Novo
+            tenant_id: decoded.tenantId,  // Formato Compatibilidade
+            role: decoded.role,
+            name: decoded.name || 'Usuário Portal'
         };
         return next();
     }
-    // -----------------------------------------
 
-    // Fluxo normal para Administradores (Users)
+    // --- CENÁRIO 2: ACESSO ADMINISTRATIVO (ERP) ---
+    // Validamos se o usuário ainda existe no banco
     const result = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.id]);
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Usuário inválido' });
+      return res.status(401).json({ error: 'Usuário administrador não encontrado.' });
     }
 
     const user = result.rows[0];
 
-    // Normaliza o objeto req.user para usar tenantId (camelCase) em todo o sistema
+    // O PULO DO GATO: Injetamos ambas as versões do ID do tenant
     req.user = {
       id: user.id,
       name: user.name,
       email: user.email,
-      tenantId: user.tenant_id, // Mapeia snake_case do banco para camelCase
-      isSuperAdmin: user.is_super_admin
+      
+      // Mapeamento Duplo para evitar erros em controllers antigos e novos
+      tenantId: user.tenant_id,   // CamelCase (Novos Controllers: RH, Tickets)
+      tenant_id: user.tenant_id,  // SnakeCase (Controllers Antigos: Dashboard, Vendas)
+      
+      isSuperAdmin: user.is_super_admin,
+      role: user.role || 'agent'
     };
 
     return next();
+
   } catch (err) {
-    console.error('Erro Auth:', err);
-    return res.status(401).json({ error: 'Token inválido' });
+    console.error('Erro de Autenticação (Middleware):', err.message);
+    return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
   }
 };

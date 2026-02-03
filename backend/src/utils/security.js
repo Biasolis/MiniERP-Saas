@@ -1,41 +1,32 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const SALT_ROUNDS = 10;
+const JWT_SECRET = process.env.JWT_SECRET || 'a70f5d165c27a64834c0ccf3f9a659be';
 
-/**
- * Cria o hash da senha
- */
 const hashPassword = async (password) => {
-    return await bcrypt.hash(password, SALT_ROUNDS);
+  const salt = await bcrypt.genSalt(10);
+  return await bcrypt.hash(password, salt);
 };
 
-/**
- * Compara senha enviada com o hash do banco
- */
 const comparePassword = async (password, hash) => {
-    return await bcrypt.compare(password, hash);
+  return await bcrypt.compare(password, hash);
 };
 
-/**
- * Gera o Token JWT contendo ID do usuário e ID do Tenant
- * Isso é crucial para o isolamento dos dados
- */
 const generateToken = (user) => {
-    return jwt.sign(
-        { 
-            userId: user.id, 
-            tenantId: user.tenant_id,
-            role: user.role,
-            isSuperAdmin: user.is_super_admin 
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '1d' }
-    );
+  // Garante que o payload tenha dados compatíveis para Admin e Colaborador
+  const payload = {
+    id: user.id,
+    // Normaliza para tenantId (padrão novo) mas mantemos tenant_id no middleware
+    tenantId: user.tenant_id || user.tenantId, 
+    role: user.role || 'agent', // Se não tiver role (admin antigo), assume agent
+    name: user.name
+  };
+
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 };
 
 module.exports = {
-    hashPassword,
-    comparePassword,
-    generateToken
+  hashPassword,
+  comparePassword,
+  generateToken
 };
