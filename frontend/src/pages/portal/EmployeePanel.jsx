@@ -16,47 +16,53 @@ export default function EmployeePanel() {
 
   // Estados Tickets
   const [tickets, setTickets] = useState([]);
-  const [categories, setCategories] = useState([]); // Armazena o cardápio de serviços
+  const [categories, setCategories] = useState([]); 
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
-  const [newTicket, setNewTicket] = useState({ title: '', description: '', category_id: '' });
+  
+  // CORREÇÃO: Alterado 'title' para 'subject' para casar com o banco de dados
+  const [newTicket, setNewTicket] = useState({ subject: '', description: '', category_id: '' });
   const [loadingTickets, setLoadingTickets] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('employee_token');
-    const storedUser = localStorage.getItem('employee_user');
+    const token = localStorage.getItem('employeeToken');
+    const storedUser = localStorage.getItem('employeeUser');
 
     if (!token) {
         navigate('/portal/login');
         return;
     }
 
-    // Configura o token para todas as requisições
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    
     if (storedUser) {
         try {
-            setUser(JSON.parse(storedUser));
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            fetchTimesheet(parsedUser.id);
         } catch (e) {
             console.error("Erro ao ler dados do usuário", e);
         }
     }
 
-    // Relógio em tempo real
     const timer = setInterval(() => setTime(new Date()), 1000);
     
-    // Carrega dados iniciais
-    fetchTimesheet();
     fetchTickets();
-    fetchCategories(); // Busca as categorias disponíveis (RH, TI, etc)
+    fetchCategories(); 
 
     return () => clearInterval(timer);
   }, []);
 
   // --- FUNÇÕES DE PONTO ---
-  const fetchTimesheet = async () => {
+  const fetchTimesheet = async (employeeId) => {
     const today = new Date();
+    const id = employeeId || user.id; 
+    if(!id) return;
+
     try {
-        const res = await api.get(`/portal/me/timesheet?month=${today.getMonth() + 1}&year=${today.getFullYear()}`);
+        const res = await api.get(`/portal/me/timesheet`, {
+            params: { 
+                month: today.getMonth() + 1,
+                year: today.getFullYear()
+            }
+        });
         setTimesheet(res.data);
     } catch (error) {
         console.error("Erro ao carregar espelho", error);
@@ -77,9 +83,15 @@ export default function EmployeePanel() {
                 console.warn("Geolocalização indisponível");
             }
         }
-        await api.post('/portal/clockin', { record_type: type, location });
+        
+        await api.post('/portal/clockin', { 
+            record_type: type, 
+            location,
+            employee_id: user.id 
+        });
+        
         addToast({ type: 'success', title: 'Sucesso', message: 'Ponto registrado!' });
-        await fetchTimesheet(); 
+        await fetchTimesheet(user.id); 
     } catch (error) {
         addToast({ type: 'error', title: 'Erro', message: error.response?.data?.message || 'Falha ao registrar ponto.' });
     } finally {
@@ -89,12 +101,10 @@ export default function EmployeePanel() {
 
   // --- FUNÇÕES DE TICKET ---
   
-  // Busca Categorias do Backend (preenche o select)
   const fetchCategories = async () => {
       try {
           const res = await api.get('/portal/categories');
           setCategories(res.data);
-          // Se houver categorias, define a primeira como padrão para facilitar
           if(res.data && res.data.length > 0) {
               setNewTicket(prev => ({ ...prev, category_id: res.data[0].id }));
           }
@@ -103,7 +113,6 @@ export default function EmployeePanel() {
       }
   };
 
-  // Busca Tickets do Colaborador
   const fetchTickets = async () => {
       try {
           const res = await api.get('/portal/tickets');
@@ -113,7 +122,6 @@ export default function EmployeePanel() {
       }
   };
 
-  // Cria novo Ticket
   const handleCreateTicket = async (e) => {
       e.preventDefault();
       
@@ -124,11 +132,16 @@ export default function EmployeePanel() {
 
       setLoadingTickets(true);
       try {
-          await api.post('/portal/tickets', newTicket);
+          // O backend espera 'subject', 'description', 'category_id'
+          await api.post('/portal/tickets', {
+              ...newTicket,
+              employee_id: user.id
+          });
+          
           addToast({ type: 'success', title: 'Sucesso', message: 'Chamado aberto!' });
           setIsTicketModalOpen(false);
-          // Reseta form mantendo a categoria selecionada ou a padrão
-          setNewTicket({ title: '', description: '', category_id: categories[0]?.id || '' });
+          // Reseta o formulário usando 'subject'
+          setNewTicket({ subject: '', description: '', category_id: categories[0]?.id || '' });
           fetchTickets();
       } catch (error) {
           addToast({ type: 'error', title: 'Erro', message: error.response?.data?.error || 'Erro ao abrir ticket.' });
@@ -138,8 +151,8 @@ export default function EmployeePanel() {
   };
 
   const handleLogout = () => {
-      localStorage.removeItem('employee_token');
-      localStorage.removeItem('employee_user');
+      localStorage.removeItem('employeeToken');
+      localStorage.removeItem('employeeUser');
       navigate('/portal/login');
   };
 
@@ -156,6 +169,7 @@ export default function EmployeePanel() {
       const config = { 
           'open': { bg: '#e0f2fe', color: '#0369a1', label: 'Aberto' }, 
           'in_progress': { bg: '#fff7ed', color: '#c2410c', label: 'Em Andamento' },
+          'pending': { bg: '#fff7ed', color: '#c2410c', label: 'Pendente' },
           'closed': { bg: '#dcfce7', color: '#15803d', label: 'Concluído' },
           'resolved': { bg: '#dcfce7', color: '#15803d', label: 'Resolvido' }
       };
@@ -186,7 +200,7 @@ export default function EmployeePanel() {
       </header>
 
       {/* GRID PRINCIPAL */}
-      <div style={{display:'grid', gridTemplateColumns:'1fr 2fr', gap:'2rem', marginBottom:'2rem'}}>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'2rem', marginBottom:'2rem'}}>
         
         {/* COLUNA 1: RELÓGIO E AÇÕES */}
         <div style={{display:'flex', flexDirection:'column', gap:'20px'}}>
@@ -294,7 +308,8 @@ export default function EmployeePanel() {
                           </span>
                           {getStatusBadge(ticket.status)}
                       </div>
-                      <h4 style={{margin:'0 0 5px 0', color:'#1e293b', fontSize:'1rem'}}>{ticket.title || ticket.subject}</h4>
+                      {/* CORREÇÃO VISUAL: Exibir subject mesmo se vier title do backend */}
+                      <h4 style={{margin:'0 0 5px 0', color:'#1e293b', fontSize:'1rem'}}>{ticket.subject || ticket.title}</h4>
                       <p style={{margin:0, color:'#64748b', fontSize:'0.9rem', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden', lineHeight:'1.4'}}>
                           {ticket.description}
                       </p>
@@ -319,8 +334,9 @@ export default function EmployeePanel() {
                   <form onSubmit={handleCreateTicket}>
                       <div style={{marginBottom:'15px'}}>
                           <label style={{display:'block', marginBottom:'5px', fontWeight:'600', fontSize:'0.9rem', color:'#475569'}}>Assunto</label>
+                          {/* CORREÇÃO: Input ligado ao campo 'subject' */}
                           <input required 
-                              value={newTicket.title} onChange={e => setNewTicket({...newTicket, title: e.target.value})}
+                              value={newTicket.subject} onChange={e => setNewTicket({...newTicket, subject: e.target.value})}
                               placeholder="Ex: Erro no Holerite, Computador Lento..."
                               style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', fontSize:'0.95rem', outline:'none'}} 
                           />

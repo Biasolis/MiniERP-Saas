@@ -1,10 +1,11 @@
 import { Navigate } from 'react-router-dom';
 
 export default function PortalPrivateRoute({ children }) {
+  // Busca o token exato que o EmployeeLogin salvou
   const token = localStorage.getItem('employeeToken');
   
-  // Se não tem token de funcionário, redireciona para o login do portal
   if (!token) {
+    // Se não tiver token, volta pro login
     return <Navigate to="/portal/login" replace />;
   }
 

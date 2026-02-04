@@ -16,15 +16,16 @@ export default function EmployeeLogin() {
     setLoading(true);
 
     try {
-      // CORREÇÃO: A rota correta no backend é /portal/login, não /employee/login
+      // 1. ROTA DA API: Deve bater com 'app.use(/api/portal)' no backend
       const response = await api.post('/portal/login', { email, password });
       
       const { token, user } = response.data;
 
-      // Salva token específico do colaborador
+      // 2. CHAVE DO TOKEN: Tem que ser igual ao que o 'api.js' e 'PortalPrivateRoute' buscam
       localStorage.setItem('employeeToken', token);
       localStorage.setItem('employeeUser', JSON.stringify(user));
 
+      // 3. REDIRECIONAMENTO: Deve ser '/portal' (como está no App.jsx), e não '/portal/panel'
       navigate('/portal'); 
 
     } catch (err) {
