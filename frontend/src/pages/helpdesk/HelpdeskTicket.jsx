@@ -1,126 +1,149 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { ToastContext } from '../../context/ToastContext';
 import { ArrowLeft, Send, User, Clock, CheckCircle } from 'lucide-react';
 
 export default function HelpdeskTicket() {
-  const { slug, id } = useParams();
+  const { id } = useParams();
   const navigate = useNavigate();
-  
+  const { addToast } = useContext(ToastContext);
+  const messagesEndRef = useRef(null);
+
   const [ticket, setTicket] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [reply, setReply] = useState('');
+  const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    // Verifica token
-    const token = localStorage.getItem('helpdesk_token');
-    if(!token) navigate(`/helpdesk/${slug}`);
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
-    loadTicket();
+      // 1. Verifica Usuário Local
+      const userStr = localStorage.getItem('clientUser');
+      if (userStr) setCurrentUser(JSON.parse(userStr));
+      
+      // 2. Carrega Dados
+      loadTicketData();
   }, [id]);
 
-  const loadTicket = async () => {
-    try {
-        const res = await api.get(`/tickets/${id}`);
-        setTicket(res.data.ticket);
-        setMessages(res.data.messages);
-    } catch (error) {
-        alert('Erro ao carregar ticket');
-        navigate(`/helpdesk/${slug}/panel`);
-    } finally {
-        setLoading(false);
-    }
+  useEffect(() => {
+      scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if(!reply.trim()) return;
-
-    try {
-        await api.post(`/tickets/${id}/messages`, { message: reply });
-        setReply('');
-        loadTicket(); // Recarrega mensagens
-    } catch (error) {
-        alert('Erro ao enviar mensagem');
-    }
+  const loadTicketData = async () => {
+      try {
+          // Usa a rota PÚBLICA correta: /tickets/public/ticket/:id
+          const res = await api.get(`/tickets/public/ticket/${id}`);
+          setTicket(res.data.ticket);
+          setMessages(res.data.messages);
+      } catch (error) {
+          console.error(error);
+          addToast({ type: 'error', title: 'Erro', message: 'Não foi possível carregar o ticket.' });
+          // Se der 401 ou 403, o api.js já vai redirecionar
+      } finally {
+          setLoading(false);
+      }
   };
 
-  if (loading) return <div style={{padding:'40px', textAlign:'center'}}>Carregando conversa...</div>;
+  const handleSendMessage = async (e) => {
+      e.preventDefault();
+      if (!newMessage.trim()) return;
+      
+      setSending(true);
+      try {
+          await api.post(`/tickets/public/ticket/${id}/messages`, {
+              message: newMessage,
+              sender_id: currentUser?.id // Envia ID para garantir
+          });
+          setNewMessage('');
+          loadTicketData(); // Recarrega para ver a msg nova
+      } catch (error) {
+          addToast({ type: 'error', title: 'Erro ao enviar' });
+      } finally {
+          setSending(false);
+      }
+  };
+
+  if (loading) return <div style={{padding:'2rem', textAlign:'center', color:'#64748b'}}>Carregando conversa...</div>;
+  if (!ticket) return <div style={{padding:'2rem', textAlign:'center'}}>Ticket não encontrado.</div>;
 
   return (
-    <div style={{minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column'}}>
-        
-        {/* HEADER */}
-        <header style={{background:'white', padding:'15px 20px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)', display:'flex', alignItems:'center', gap:'15px'}}>
-            <button onClick={() => navigate(`/helpdesk/${slug}/panel`)} style={{border:'none', background:'none', cursor:'pointer', color:'#64748b'}}>
-                <ArrowLeft size={24}/>
+    <div style={{minHeight:'100vh', background:'#f8fafc', display:'flex', flexDirection:'column'}}>
+        {/* Header */}
+        <header style={{background:'white', padding:'1rem 2rem', borderBottom:'1px solid #e2e8f0', display:'flex', alignItems:'center', gap:'1rem', position:'sticky', top:0, zIndex:10}}>
+            <button onClick={() => navigate('/helpdesk')} style={{background:'none', border:'none', cursor:'pointer', color:'#64748b', display:'flex', alignItems:'center'}}>
+                <ArrowLeft size={20}/>
             </button>
-            <div>
-                <h2 style={{fontSize:'1.1rem', margin:0, color:'#1e293b'}}>#{ticket.ticket_number} - {ticket.subject}</h2>
-                <span style={{fontSize:'0.8rem', color: ticket.status === 'resolved' ? '#10b981' : '#3b82f6', fontWeight:'bold', textTransform:'uppercase'}}>
-                    {ticket.status === 'open' ? 'Aberto' : ticket.status === 'resolved' ? 'Resolvido' : 'Em Andamento'}
-                </span>
+            <div style={{flex:1}}>
+                <h2 style={{margin:0, fontSize:'1.1rem', color:'#1e293b'}}>#{ticket.id} - {ticket.subject}</h2>
+                <div style={{fontSize:'0.85rem', color:'#64748b', display:'flex', gap:'10px', alignItems:'center', marginTop:'4px'}}>
+                    <span style={{display:'flex', alignItems:'center', gap:'4px'}}><Clock size={14}/> {new Date(ticket.created_at).toLocaleDateString()}</span>
+                    {ticket.status === 'closed' && <span style={{color:'#16a34a', display:'flex', alignItems:'center', gap:'4px', background:'#dcfce7', padding:'2px 8px', borderRadius:'10px'}}><CheckCircle size={14}/> Resolvido</span>}
+                </div>
             </div>
         </header>
 
-        {/* CONTEÚDO */}
-        <div style={{flex:1, maxWidth:'800px', width:'100%', margin:'0 auto', padding:'20px', display:'flex', flexDirection:'column'}}>
-            
-            {/* Descrição Original */}
-            <div style={{background:'white', padding:'20px', borderRadius:'12px', marginBottom:'20px', boxShadow:'0 2px 4px rgba(0,0,0,0.05)'}}>
-                <strong style={{display:'block', color:'#64748b', fontSize:'0.8rem', marginBottom:'5px'}}>DESCRIÇÃO DO PROBLEMA</strong>
-                <p style={{color:'#334155', whiteSpace:'pre-wrap'}}>{ticket.description}</p>
-                <div style={{marginTop:'10px', fontSize:'0.75rem', color:'#94a3b8', display:'flex', alignItems:'center', gap:'5px'}}>
-                    <Clock size={14}/> {new Date(ticket.created_at).toLocaleString()}
-                </div>
-            </div>
-
-            {/* Lista de Mensagens */}
-            <div style={{flex:1, display:'flex', flexDirection:'column', gap:'15px', marginBottom:'20px'}}>
-                {messages.map(msg => {
-                    const isMe = msg.sender_type === 'support_user'; // Sou eu (cliente)?
-                    return (
-                        <div key={msg.id} style={{
-                            alignSelf: isMe ? 'flex-end' : 'flex-start',
-                            maxWidth: '80%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: isMe ? 'flex-end' : 'flex-start'
-                        }}>
+        {/* Chat Area */}
+        <div style={{flex:1, padding:'2rem', maxWidth:'800px', margin:'0 auto', width:'100%', overflowY:'auto'}}>
+            {messages.map((msg, idx) => {
+                // Se o sender_type for 'support_user', é o cliente (eu). Se for 'agent'/'admin', é o suporte.
+                const isMe = msg.sender_type === 'support_user';
+                
+                return (
+                    <div key={idx} style={{
+                        display:'flex', 
+                        justifyContent: isMe ? 'flex-end' : 'flex-start',
+                        marginBottom:'1.5rem'
+                    }}>
+                        <div style={{maxWidth:'70%', display:'flex', flexDirection:'column', alignItems: isMe ? 'flex-end' : 'flex-start'}}>
                             <div style={{
                                 background: isMe ? '#3b82f6' : 'white',
-                                color: isMe ? 'white' : '#1e293b',
-                                padding: '12px 16px',
+                                color: isMe ? 'white' : '#334155',
+                                padding:'1rem',
                                 borderRadius: isMe ? '12px 12px 0 12px' : '12px 12px 12px 0',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                                border: isMe ? 'none' : '1px solid #e2e8f0'
+                                boxShadow: isMe ? 'none' : '0 1px 2px rgba(0,0,0,0.1)',
+                                border: isMe ? 'none' : '1px solid #e2e8f0',
+                                fontSize:'0.95rem',
+                                lineHeight:'1.5'
                             }}>
                                 {msg.message}
                             </div>
-                            <span style={{fontSize:'0.7rem', color:'#94a3b8', marginTop:'4px'}}>
-                                {isMe ? 'Você' : msg.sender_name || 'Agente'} • {new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                            <span style={{fontSize:'0.75rem', color:'#94a3b8', marginTop:'4px', display:'flex', alignItems:'center', gap:'4px'}}>
+                                {!isMe && <User size={12}/>} 
+                                {isMe ? 'Você' : (msg.sender_name || 'Suporte')} • {new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                             </span>
                         </div>
-                    );
-                })}
-            </div>
+                    </div>
+                );
+            })}
+            <div ref={messagesEndRef} />
+        </div>
 
-            {/* Input de Resposta */}
-            {ticket.status !== 'closed' && (
-                <form onSubmit={handleSend} style={{background:'white', padding:'15px', borderRadius:'12px', boxShadow:'0 -2px 10px rgba(0,0,0,0.05)', display:'flex', gap:'10px'}}>
-                    <textarea 
-                        value={reply}
-                        onChange={e => setReply(e.target.value)}
-                        placeholder="Digite sua resposta..."
-                        style={{flex:1, border:'1px solid #e2e8f0', borderRadius:'8px', padding:'10px', resize:'none', height:'50px', fontFamily:'inherit'}}
-                    />
-                    <button type="submit" style={{background:'#3b82f6', color:'white', border:'none', borderRadius:'8px', width:'50px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                        <Send size={20}/>
-                    </button>
-                </form>
-            )}
+        {/* Input Area */}
+        <div style={{background:'white', padding:'1.5rem', borderTop:'1px solid #e2e8f0'}}>
+            <form onSubmit={handleSendMessage} style={{maxWidth:'800px', margin:'0 auto', display:'flex', gap:'10px'}}>
+                <input 
+                    value={newMessage}
+                    onChange={e => setNewMessage(e.target.value)}
+                    placeholder="Escreva uma resposta..."
+                    disabled={sending || ticket.status === 'closed'}
+                    style={{flex:1, padding:'12px', borderRadius:'8px', border:'1px solid #cbd5e1', outline:'none'}}
+                />
+                <button 
+                    type="submit" 
+                    disabled={sending || !newMessage.trim() || ticket.status === 'closed'}
+                    style={{
+                        background: sending ? '#94a3b8' : '#3b82f6', color:'white', border:'none', 
+                        padding:'0 20px', borderRadius:'8px', cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', fontWeight:'600'
+                    }}
+                >
+                    <Send size={18}/> {sending ? '...' : 'Enviar'}
+                </button>
+            </form>
         </div>
     </div>
   );

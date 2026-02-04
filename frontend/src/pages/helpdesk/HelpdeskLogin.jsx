@@ -1,36 +1,69 @@
-import { useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api from '../../services/api'; // Usa o api.js inteligente
+import { useState, useContext, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import api from '../../services/api';
 import { ToastContext } from '../../context/ToastContext';
 import { Lock, Mail, ArrowRight, LifeBuoy } from 'lucide-react';
 
 export default function HelpdeskLogin() {
   const navigate = useNavigate();
+  const { slug } = useParams(); // Pode ser undefined se acessar /helpdesk/login direto
   const { addToast } = useContext(ToastContext);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  const [portalConfig, setPortalConfig] = useState({
+      title: 'Central de Ajuda',
+      color: '#3b82f6',
+      logo: null
+  });
+
+  useEffect(() => {
+      // CORREÇÃO: Só busca se tiver slug válido
+      if (slug && slug !== 'undefined') {
+          fetchPortalConfig();
+      }
+  }, [slug]);
+
+  const fetchPortalConfig = async () => {
+      try {
+          const res = await api.get(`/tickets/public/config/${slug}`);
+          setPortalConfig({
+              title: res.data.portal_title || 'Central de Ajuda',
+              color: res.data.primary_color || '#3b82f6',
+              logo: res.data.logo_url
+          });
+          
+          // Aplica cor dinâmica no tema
+          if (res.data.primary_color) {
+              document.documentElement.style.setProperty('--primary-color', res.data.primary_color);
+          }
+      } catch (error) {
+          console.error("Portal não encontrado, usando padrão.");
+      }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // Chama a rota pública de autenticação
-      const response = await api.post('/tickets/public/auth', { email, password });
+      const response = await api.post('/tickets/public/auth', { 
+          email, 
+          password,
+          slug: slug // Envia o slug se existir
+      });
       
       const { token, user } = response.data;
 
-      // Salva com chaves específicas do Helpdesk para não conflitar com o Admin
       localStorage.setItem('clientToken', token);
       localStorage.setItem('clientUser', JSON.stringify(user));
 
-      addToast({ type: 'success', title: 'Bem-vindo(a)!' });
+      addToast({ type: 'success', title: `Bem-vindo, ${user.name}!` });
       navigate('/helpdesk');
 
     } catch (error) {
-      console.error(error);
       addToast({ type: 'error', title: 'Falha no login', message: error.response?.data?.error || 'Verifique suas credenciais' });
     } finally {
       setLoading(false);
@@ -42,11 +75,20 @@ export default function HelpdeskLogin() {
       <div style={{width:'100%', maxWidth:'400px', padding:'2rem', background:'white', borderRadius:'16px', boxShadow:'0 4px 6px -1px rgba(0,0,0,0.1)'}}>
         
         <div style={{textAlign:'center', marginBottom:'2rem'}}>
-            <div style={{width:'60px', height:'60px', background:'#eff6ff', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 1rem'}}>
-                <LifeBuoy size={32} color="#3b82f6" />
+            <div style={{
+                width:'60px', height:'60px', borderRadius:'50%', margin:'0 auto 1rem',
+                background: portalConfig.color + '20',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                color: portalConfig.color
+            }}>
+                {portalConfig.logo ? (
+                    <img src={portalConfig.logo} alt="Logo" style={{maxWidth:'40px', maxHeight:'40px'}} />
+                ) : (
+                    <LifeBuoy size={32} />
+                )}
             </div>
-            <h1 style={{fontSize:'1.5rem', fontWeight:'bold', color:'#1e293b'}}>Central de Ajuda</h1>
-            <p style={{color:'#64748b'}}>Acesse seus chamados e suporte</p>
+            <h1 style={{fontSize:'1.5rem', fontWeight:'bold', color:'#1e293b'}}>{portalConfig.title}</h1>
+            <p style={{color:'#64748b'}}>Área do Cliente</p>
         </div>
 
         <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'1rem'}}>
@@ -84,18 +126,14 @@ export default function HelpdeskLogin() {
             type="submit" 
             disabled={loading}
             style={{
-                marginTop:'1rem', background:'#3b82f6', color:'white', border:'none', padding:'12px', 
+                marginTop:'1rem', background: portalConfig.color, color:'white', border:'none', padding:'12px', 
                 borderRadius:'8px', fontWeight:'600', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'8px',
-                opacity: loading ? 0.7 : 1
+                opacity: loading ? 0.7 : 1, transition: '0.2s'
             }}
           >
             {loading ? 'Entrando...' : <>Acessar Painel <ArrowRight size={18}/></>}
           </button>
         </form>
-        
-        <div style={{marginTop:'1.5rem', textAlign:'center', fontSize:'0.85rem', color:'#94a3b8'}}>
-            Não tem uma conta? Entre em contato com o suporte.
-        </div>
       </div>
     </div>
   );

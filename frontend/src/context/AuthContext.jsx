@@ -1,5 +1,5 @@
 import { createContext, useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom'; 
+import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 
 export const AuthContext = createContext({});
@@ -10,7 +10,7 @@ export const AuthProvider = ({ children }) => {
   const location = useLocation();
 
   useEffect(() => {
-    // TRAVA DE SEGURANÇA: Admin não se mete no Helpdesk
+    // SE ESTIVER NO HELPDESK OU PORTAL, NÃO FAZ NADA.
     const path = location.pathname;
     if (path.startsWith('/helpdesk') || path.startsWith('/portal')) {
         setLoading(false);
@@ -34,14 +34,16 @@ export const AuthProvider = ({ children }) => {
           }
 
           const parsedUser = JSON.parse(storedUser);
+          
           api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
 
-          setUser({
-              ...parsedUser,
-              isSuperAdmin: parsedUser.isSuperAdmin === true || parsedUser.is_super_admin === true
-          });
+          const isSuperAdmin = parsedUser.isSuperAdmin === true || parsedUser.is_super_admin === true;
+
+          setUser({ ...parsedUser, isSuperAdmin });
           
-          if (parsedUser.tenant_color) applyTheme(parsedUser.tenant_color);
+          if (parsedUser.tenant_color) {
+             applyTheme(parsedUser.tenant_color);
+          }
 
         } catch (e) {
             console.error("AuthContext Error", e);
@@ -92,7 +94,10 @@ export const AuthProvider = ({ children }) => {
     delete api.defaults.headers.common['Authorization'];
     document.documentElement.style.removeProperty('--primary-color');
     document.documentElement.style.removeProperty('--primary-hover');
-    if (window.location.pathname !== '/login') window.location.href = '/login';
+    
+    if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+    }
   };
 
   return (

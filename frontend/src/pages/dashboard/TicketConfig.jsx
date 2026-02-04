@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import { ToastContext } from '../../context/ToastContext';
 import api from '../../services/api';
-import { Settings, Save, Link as LinkIcon, Plus, UserPlus, Users, Mail } from 'lucide-react';
+import { Settings, Save, Link as LinkIcon, Plus, UserPlus, Users, Mail, Trash2 } from 'lucide-react';
 
 export default function TicketConfig() {
   const { addToast } = useContext(ToastContext);
@@ -10,14 +10,14 @@ export default function TicketConfig() {
   // States
   const [config, setConfig] = useState({ slug: '', portal_title: '', primary_color: '#4f46e5' });
   const [categories, setCategories] = useState([]);
-  const [usersList, setUsersList] = useState([]); // <--- Lista de Clientes
+  const [usersList, setUsersList] = useState([]); 
   const [newCat, setNewCat] = useState({ name: '', description: '' });
   const [supportUser, setSupportUser] = useState({ name: '', email: '', password: '' });
 
   useEffect(() => {
     loadConfig();
     loadCategories();
-    loadUsers(); // <--- Carrega clientes ao iniciar
+    loadUsers();
   }, []);
 
   const loadConfig = async () => {
@@ -35,9 +35,10 @@ export default function TicketConfig() {
 
   const loadCategories = async () => {
     try {
-        const res = await api.get('/tickets/admin/categories');
+        // CORREÇÃO: URL da API ajustada
+        const res = await api.get('/tickets/categories'); 
         setCategories(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Erro ao carregar categorias", e); }
   };
 
   const loadUsers = async () => {
@@ -69,13 +70,24 @@ export default function TicketConfig() {
     }
   };
 
+  const handleDeleteCategory = async (id) => {
+      if(!confirm("Excluir categoria?")) return;
+      try {
+          await api.delete(`/tickets/categories/${id}`);
+          loadCategories();
+          addToast({ type: 'success', title: 'Excluído', message: 'Categoria removida.' });
+      } catch (e) {
+          addToast({ type: 'error', title: 'Erro', message: 'Erro ao excluir' });
+      }
+  };
+
   const handleAddSupportUser = async (e) => {
     e.preventDefault();
     try {
         await api.post('/tickets/users', supportUser);
         addToast({ type: 'success', title: 'Sucesso', message: 'Cliente cadastrado com acesso ao portal!' });
         setSupportUser({ name: '', email: '', password: '' });
-        loadUsers(); // Recarrega a lista
+        loadUsers(); 
     } catch (error) {
         addToast({ type: 'error', title: 'Erro', message: error.response?.data?.error || 'Erro ao cadastrar usuário' });
     }
@@ -129,7 +141,6 @@ export default function TicketConfig() {
                 Cadastre clientes para que eles possam abrir chamados.
             </p>
             
-            {/* Formulário */}
             <form onSubmit={handleAddSupportUser} style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom:'20px', borderBottom:'1px solid #eee', paddingBottom:'20px'}}>
                 <input required value={supportUser.name} onChange={e => setSupportUser({...supportUser, name: e.target.value})} style={input} placeholder="Nome do Cliente" />
                 <input required type="email" value={supportUser.email} onChange={e => setSupportUser({...supportUser, email: e.target.value})} style={input} placeholder="Email de Acesso" />
@@ -139,7 +150,6 @@ export default function TicketConfig() {
                 </button>
             </form>
 
-            {/* Lista de Usuários */}
             <div style={{maxHeight:'250px', overflowY:'auto'}}>
                 <h4 style={{fontSize:'0.9rem', color:'#334155', marginBottom:'10px'}}>Clientes Cadastrados ({usersList.length})</h4>
                 {usersList.length === 0 && <p style={{color:'#999', fontSize:'0.8rem'}}>Nenhum cliente cadastrado.</p>}
@@ -155,7 +165,7 @@ export default function TicketConfig() {
             </div>
         </div>
 
-        {/* COLUNA 3: CARDÁPIO */}
+        {/* COLUNA 3: CARDÁPIO (CATEGORIAS) */}
         <div style={card}>
             <h3>Cardápio de Serviços</h3>
             <p style={{fontSize:'0.85rem', color:'#666', marginBottom:'15px'}}>Categorias para abertura de tickets.</p>
@@ -170,7 +180,7 @@ export default function TicketConfig() {
                 {categories.map(cat => (
                     <div key={cat.id} style={{padding:'12px', borderBottom:'1px solid #f1f5f9', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                         <span style={{fontWeight:'500', color:'#334155'}}>{cat.name}</span>
-                        <div style={{width:'8px', height:'8px', borderRadius:'50%', background:'#22c55e'}}></div>
+                        <button onClick={() => handleDeleteCategory(cat.id)} style={{background:'none', border:'none', cursor:'pointer', color:'#ef4444'}}><Trash2 size={16}/></button>
                     </div>
                 ))}
             </div>

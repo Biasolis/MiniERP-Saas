@@ -6,50 +6,47 @@ const authMiddleware = require('../middlewares/authMiddleware');
 // ==========================================
 // 1. ROTAS PÚBLICAS (HELPDESK / CLIENTE)
 // ==========================================
-// Acesso externo (sem token de admin do sistema)
 
 router.post('/public/auth', ticketController.clientLogin);
-router.post('/public/create', ticketController.createTicketPublic); // Se usar lógica simplificada ou wrapper
+router.post('/public/create', ticketController.createTicketPublic);
 router.get('/public/list/:clientId', ticketController.listTicketsPublic);
-router.get('/public/ticket/:id', ticketController.getTicketPublic); // Nome ajustado para evitar colisão
+router.get('/public/ticket/:id', ticketController.getTicketPublic);
 router.post('/public/ticket/:id/messages', ticketController.addMessagePublic);
-router.get('/public/config/:slug', ticketController.getPortalConfig); // Config visual do portal
+router.get('/public/config/:slug', ticketController.getPortalConfig);
+router.get('/public/categories/:tenantId', ticketController.getPublicCategories);
 
 // ==========================================
 // 2. ROTAS PRIVADAS (PAINEL INTERNO)
 // ==========================================
-// Requer login no sistema (Admin/Colaborador)
 router.use(authMiddleware);
 
-// --- A. ROTAS ESPECÍFICAS (DEVEM VIR ANTES DE /:id) ---
+// --- A. ROTAS ESPECÍFICAS ---
 
-// Configuração do Portal
 router.get('/config', ticketController.getConfig);
 router.post('/config', ticketController.saveConfig);
-router.put('/config', ticketController.saveConfig); // Suporte a PUT também
+router.put('/config', ticketController.saveConfig);
 
-// Categorias
 router.get('/categories', ticketController.getCategories);
 router.post('/categories', ticketController.createCategory);
 router.delete('/categories/:id', ticketController.deleteCategory);
 
-// Usuários de Suporte (Clientes do Helpdesk)
 router.get('/users', ticketController.getSupportUsers);
 router.post('/users', ticketController.createSupportUser);
 
-// Agentes (Usuários do Sistema)
 router.get('/agents', ticketController.getAgents);
 
-// --- B. ROTAS DE TICKETS (CRUD GERAL) ---
+// --- B. ROTAS DE TICKETS ---
 
-router.get('/', ticketController.getTickets); // Listar todos
-router.post('/', ticketController.createTicket); // Criar novo
+router.get('/', ticketController.getTickets); 
+router.post('/', ticketController.createTicket); 
 
-// --- C. ROTAS DINÂMICAS (DEVEM VIR POR ÚLTIMO) ---
-// O erro acontecia porque estas estavam capturando "config" e "users"
+// --- C. ROTAS DINÂMICAS ---
 
-router.get('/:id', ticketController.getTicketDetails); // Detalhes
-router.put('/:id/status', ticketController.updateStatus); // Mudar status
-router.post('/:id/messages', ticketController.addMessage); // Responder
+router.get('/:id', ticketController.getTicketDetails);
+
+// CORREÇÃO AQUI: Mudado de router.put para router.patch para casar com o frontend
+router.patch('/:id/status', ticketController.updateStatus); 
+
+router.post('/:id/messages', ticketController.addMessage); 
 
 module.exports = router;

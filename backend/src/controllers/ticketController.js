@@ -24,6 +24,19 @@ exports.getPortalConfig = async (req, res) => {
     }
 };
 
+// NOVA FUNÇÃO: Listar Categorias Publicamente (Necessário para o HelpdeskPanel)
+exports.getPublicCategories = async (req, res) => {
+    try {
+        const { tenantId } = req.params;
+        // Retorna apenas ID e Nome para o público
+        const result = await pool.query('SELECT id, name FROM ticket_categories WHERE tenant_id = $1 ORDER BY name ASC', [tenantId]);
+        res.json(result.rows);
+    } catch (error) {
+        console.error("Erro em getPublicCategories:", error);
+        res.status(500).json({ error: 'Erro ao buscar categorias' });
+    }
+};
+
 // Login do Cliente Externo (via tabela support_users)
 exports.clientLogin = async (req, res) => {
     try {
@@ -62,7 +75,8 @@ exports.clientLogin = async (req, res) => {
             { expiresIn: '8h' }
         );
 
-        res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: 'support_user' } });
+        // Retorna tenant_id no user para o front saber carregar as categorias certas
+        res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: 'support_user', tenant_id: user.tenant_id } });
 
     } catch (error) {
         console.error(error);
@@ -256,7 +270,6 @@ exports.createTicket = async (req, res) => {
         const userId = req.user.id;
         const { subject, description, category_id, priority, requester_id, requester_type } = req.body;
 
-        // Se for admin criando para outro, usa os dados do body, senão usa do usuário logado
         const role = req.user.role;
         let finalReqId = userId;
         let finalReqType = role;
@@ -310,7 +323,7 @@ exports.addMessage = async (req, res) => {
     try {
         const userId = req.user.id;
         const role = req.user.role;
-        const { id } = req.params; // ticketRoutes usa :id para addMessageInternal
+        const { id } = req.params; 
         const { message, is_internal } = req.body;
 
         await pool.query(
@@ -341,24 +354,21 @@ exports.updateStatus = async (req, res) => {
 // ==========================================
 // 5. INTEGRAÇÃO COM ROTAS PÚBLICAS (LEGADO/HELPDESK)
 // ==========================================
-// Estas funções são necessárias para que o ticketRoutes.js não quebre.
-// Elas mapeiam as chamadas públicas para a lógica apropriada.
 
 exports.publicAuth = exports.clientLogin;
 
+// CORREÇÃO: Recebe category_id e insere no banco
 exports.createTicketPublic = async (req, res) => {
-    // Para criar ticket público, assumimos que o token JWT de support_user foi enviado no Header Authorization
-    // O middleware de rota pública (se houver) ou a lógica aqui deve decodificar
-    // Para simplificar e evitar crash, usamos uma lógica básica de inserção sem depender do req.user do authMiddleware padrão
     try {
-        const { tenant_id, client_id, subject, description, priority } = req.body;
+        const { tenant_id, client_id, subject, description, priority, category_id } = req.body;
+
         // Validação básica
         if (!tenant_id || !subject) return res.status(400).json({ error: 'Dados incompletos' });
 
         const result = await pool.query(
-            `INSERT INTO tickets (tenant_id, requester_id, requester_type, subject, description, priority, status)
-             VALUES ($1, $2, 'support_user', $3, $4, $5, 'open') RETURNING id`,
-            [tenant_id, client_id, subject, description, priority || 'medium']
+            `INSERT INTO tickets (tenant_id, requester_id, requester_type, subject, description, priority, category_id, status)
+             VALUES ($1, $2, 'support_user', $3, $4, $5, $6, 'open') RETURNING id`,
+            [tenant_id, client_id, subject, description, priority || 'medium', category_id || null]
         );
         res.status(201).json(result.rows[0]);
     } catch (error) {
@@ -411,7 +421,7 @@ exports.getTicketPublic = async (req, res) => {
 exports.addMessagePublic = async (req, res) => {
     try {
         const { id } = req.params;
-        const { message, sender_id } = req.body; // O ID do remetente deve vir no body se não tiver auth middleware
+        const { message, sender_id } = req.body;
 
         await pool.query(
             `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message)

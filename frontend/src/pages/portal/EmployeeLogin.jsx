@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // Importação correta
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { User, Lock, ArrowRight } from 'lucide-react';
 
@@ -16,21 +16,16 @@ export default function EmployeeLogin() {
     setLoading(true);
 
     try {
+      // CORREÇÃO: A rota correta no backend é /portal/login, não /employee/login
       const response = await api.post('/portal/login', { email, password });
       
-      const { token, employee } = response.data;
+      const { token, user } = response.data;
 
-      // Salva dados específicos do Colaborador
-      localStorage.setItem('employee_token', token);
-      localStorage.setItem('employee_user', JSON.stringify(employee));
+      // Salva token específico do colaborador
+      localStorage.setItem('employeeToken', token);
+      localStorage.setItem('employeeUser', JSON.stringify(user));
 
-      // Configura header padrão para próximas requisições
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
-      // --- CORREÇÃO AQUI ---
-      // Redireciona para o PAINEL correto
-      navigate('/portal/panel'); 
-      // ---------------------
+      navigate('/portal'); 
 
     } catch (err) {
       console.error(err);
@@ -54,8 +49,8 @@ export default function EmployeeLogin() {
           <div style={{position: 'relative'}}>
             <User size={20} style={{position: 'absolute', top: '12px', left: '12px', color: '#94a3b8'}} />
             <input 
-              type="email" 
-              placeholder="Seu Email Corporativo" 
+              type="text" 
+              placeholder="Email ou Código de Acesso" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
               required

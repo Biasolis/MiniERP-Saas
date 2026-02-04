@@ -1,19 +1,19 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 
-// Guards (Proteção de Rotas)
-import PrivateRoute from './components/layout/PrivateRoute'; // Admin (ERP)
-import PortalPrivateRoute from './components/layout/PortalPrivateRoute'; // Colaborador (Novo)
-import HelpdeskPrivateRoute from './components/layout/HelpdeskPrivateRoute'; // Cliente (Novo)
+// Guards
+import PrivateRoute from './components/layout/PrivateRoute';
+import PortalPrivateRoute from './components/layout/PortalPrivateRoute';
+import HelpdeskPrivateRoute from './components/layout/HelpdeskPrivateRoute';
 
-// Auth Admin
+// Auth Pages
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 
-// Dashboard Admin
+// Dashboard
 import DashboardHome from './pages/dashboard/DashboardHome';
 import Clients from './pages/dashboard/Clients';
 import ClientDetails from './pages/dashboard/ClientDetails';
@@ -44,62 +44,60 @@ import PrintOS from './pages/dashboard/PrintOS';
 import StockEntries from './pages/dashboard/StockEntries';
 import Tickets from './pages/dashboard/Tickets'; 
 import TicketConfig from './pages/dashboard/TicketConfig';
+import AdminDashboard from './pages/admin/AdminDashboard';
 
-// Helpdesk (Área do Cliente)
+// Helpdesk & Portal
 import HelpdeskLogin from './pages/helpdesk/HelpdeskLogin';
 import HelpdeskPanel from './pages/helpdesk/HelpdeskPanel';
 import HelpdeskTicket from './pages/helpdesk/HelpdeskTicket';
-
-// Portal do Colaborador
 import EmployeeLogin from './pages/portal/EmployeeLogin';
 import EmployeePanel from './pages/portal/EmployeePanel';
 import EmployeeTicket from './pages/portal/EmployeeTicket';
 
-// Super Admin
-import AdminDashboard from './pages/admin/AdminDashboard';
+// Wrapper para isolar Admin
+const AdminContextWrapper = () => {
+  return (
+    <AuthProvider>
+      <Outlet />
+    </AuthProvider>
+  );
+};
 
 function App() {
   return (
     <Router>
       <ToastProvider>
-        <AuthProvider>
-          <Routes>
-            {/* Rota Raiz - Redireciona para Login Admin */}
-            <Route path="/" element={<Navigate to="/login" replace />} />
+        <Routes>
+          
+          {/* --- HELPDESK (CLIENTE) --- */}
+          {/* Rota padrão */}
+          <Route path="/helpdesk/login" element={<HelpdeskLogin />} />
+          {/* Rota com SLUG (ex: /helpdesk/tech-finance) */}
+          <Route path="/helpdesk/:slug" element={<HelpdeskLogin />} />
+          
+          <Route path="/helpdesk" element={
+              <HelpdeskPrivateRoute><HelpdeskPanel /></HelpdeskPrivateRoute>
+          } />
+          <Route path="/helpdesk/ticket/:id" element={
+              <HelpdeskPrivateRoute><HelpdeskTicket /></HelpdeskPrivateRoute>
+          } />
 
-            {/* --- ÁREA PÚBLICA / AUTH (ADMIN) --- */}
+          {/* --- PORTAL (COLABORADOR) --- */}
+          <Route path="/portal/login" element={<EmployeeLogin />} />
+          <Route path="/portal" element={
+              <PortalPrivateRoute><EmployeePanel /></PortalPrivateRoute>
+          } />
+          <Route path="/portal/ticket/:id" element={
+              <PortalPrivateRoute><EmployeeTicket /></PortalPrivateRoute>
+          } />
+
+          {/* --- ADMIN / ERP --- */}
+          <Route element={<AdminContextWrapper />}>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
 
-            {/* --- HELPDESK (CLIENTE) - Rotas Protegidas --- */}
-            <Route path="/helpdesk/login" element={<HelpdeskLogin />} />
-            <Route path="/helpdesk" element={
-                <HelpdeskPrivateRoute>
-                    <HelpdeskPanel />
-                </HelpdeskPrivateRoute>
-            } />
-            <Route path="/helpdesk/ticket/:id" element={
-                <HelpdeskPrivateRoute>
-                    <HelpdeskTicket />
-                </HelpdeskPrivateRoute>
-            } />
-
-            {/* --- PORTAL DO COLABORADOR - Rotas Protegidas --- */}
-            <Route path="/portal/login" element={<EmployeeLogin />} />
-            <Route path="/portal" element={
-                <PortalPrivateRoute>
-                    <EmployeePanel />
-                </PortalPrivateRoute>
-            } />
-            <Route path="/portal/ticket/:id" element={
-                <PortalPrivateRoute>
-                    <EmployeeTicket />
-                </PortalPrivateRoute>
-            } />
-
-            {/* --- DASHBOARD (ADMIN / ERP) --- */}
             <Route path="/dashboard" element={<PrivateRoute><DashboardHome /></PrivateRoute>} />
             <Route path="/dashboard/clients" element={<PrivateRoute><Clients /></PrivateRoute>} />
             <Route path="/dashboard/clients/:id" element={<PrivateRoute><ClientDetails /></PrivateRoute>} />
@@ -133,13 +131,13 @@ function App() {
             <Route path="/dashboard/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
             <Route path="/dashboard/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
 
-            {/* SUPER ADMIN */}
             <Route path="/admin" element={<AdminDashboard />} />
-
-            {/* 404 */}
+            
+            <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
-        </AuthProvider>
+          </Route>
+
+        </Routes>
       </ToastProvider>
     </Router>
   );

@@ -11,14 +11,13 @@ export default function HelpdeskPanel() {
   
   const [user, setUser] = useState(null);
   const [tickets, setTickets] = useState([]);
+  const [categories, setCategories] = useState([]); // Nova State
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // Novo Ticket Form
-  const [newTicket, setNewTicket] = useState({ subject: '', description: '', priority: 'medium' });
+  const [newTicket, setNewTicket] = useState({ subject: '', description: '', priority: 'medium', category_id: '' });
 
   useEffect(() => {
-    // 1. Verifica Autenticação do Cliente
     const token = localStorage.getItem('clientToken');
     const userData = localStorage.getItem('clientUser');
 
@@ -30,13 +29,12 @@ export default function HelpdeskPanel() {
     const parsedUser = JSON.parse(userData);
     setUser(parsedUser);
 
-    // 2. Carrega Tickets
     loadTickets(parsedUser.id);
+    loadCategories(parsedUser.tenant_id); // Carrega categorias
   }, []);
 
   const loadTickets = async (clientId) => {
     try {
-        // Usa a rota pública de listagem
         const res = await api.get(`/tickets/public/list/${clientId}`);
         setTickets(res.data);
     } catch (error) {
@@ -47,24 +45,33 @@ export default function HelpdeskPanel() {
     }
   };
 
+  const loadCategories = async (tenantId) => {
+      if(!tenantId) return;
+      try {
+          const res = await api.get(`/tickets/public/categories/${tenantId}`);
+          setCategories(res.data);
+      } catch (error) {
+          console.error("Erro ao carregar categorias", error);
+      }
+  };
+
   const handleCreateTicket = async (e) => {
     e.preventDefault();
     try {
         if (!user) return;
 
-        // Recupera configuração do tenant (opcional, ou manda fixo se seu sistema for multi-tenant pelo subdominio)
-        // Aqui assumimos que o user já tem o tenant_id vinculado no backend
         await api.post('/tickets/public/create', {
-            tenant_id: user.tenant_id || 1, // Fallback se não vier no login
+            tenant_id: user.tenant_id,
             client_id: user.id,
             subject: newTicket.subject,
             description: newTicket.description,
-            priority: newTicket.priority
+            priority: newTicket.priority,
+            category_id: newTicket.category_id || null // Envia categoria
         });
 
         addToast({ type: 'success', title: 'Chamado aberto com sucesso!' });
         setIsModalOpen(false);
-        setNewTicket({ subject: '', description: '', priority: 'medium' });
+        setNewTicket({ subject: '', description: '', priority: 'medium', category_id: '' });
         loadTickets(user.id);
 
     } catch (error) {
@@ -92,7 +99,6 @@ export default function HelpdeskPanel() {
 
   return (
     <div style={{minHeight:'100vh', background:'#f8fafc'}}>
-        {/* Navbar */}
         <nav style={{background:'white', borderBottom:'1px solid #e2e8f0', padding:'1rem 2rem', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
             <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
                 <h2 style={{margin:0, color:'#3b82f6'}}>Central de Suporte</h2>
@@ -105,7 +111,6 @@ export default function HelpdeskPanel() {
             </div>
         </nav>
 
-        {/* Conteúdo */}
         <div style={{maxWidth:'1000px', margin:'2rem auto', padding:'0 1rem'}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'2rem'}}>
                 <h1 style={{fontSize:'1.8rem', color:'#1e293b', margin:0}}>Meus Chamados</h1>
@@ -147,7 +152,6 @@ export default function HelpdeskPanel() {
             )}
         </div>
 
-        {/* Modal Novo Ticket */}
         <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Abrir Novo Chamado">
             <form onSubmit={handleCreateTicket} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
                 <div>
@@ -160,12 +164,29 @@ export default function HelpdeskPanel() {
                         style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1'}}
                     />
                 </div>
+                
+                {/* SELETOR DE CATEGORIA (NOVO) */}
+                <div>
+                    <label style={{display:'block', marginBottom:'5px', fontWeight:'500'}}>Categoria</label>
+                    <select 
+                        required
+                        value={newTicket.category_id} 
+                        onChange={e => setNewTicket({...newTicket, category_id: e.target.value})}
+                        style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', background:'white'}}
+                    >
+                        <option value="">Selecione uma opção...</option>
+                        {categories.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                    </select>
+                </div>
+
                 <div>
                     <label style={{display:'block', marginBottom:'5px', fontWeight:'500'}}>Prioridade</label>
                     <select 
                         value={newTicket.priority} 
                         onChange={e => setNewTicket({...newTicket, priority: e.target.value})}
-                        style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1'}}
+                        style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', background:'white'}}
                     >
                         <option value="low">Baixa</option>
                         <option value="medium">Média</option>
