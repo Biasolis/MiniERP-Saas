@@ -2,7 +2,7 @@ import { useEffect, useState, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api'; 
 import { ToastContext } from '../../context/ToastContext'; 
-import { LogOut, ShoppingCart, Barcode, DollarSign, ArrowLeft, Trash2, Search, Plus, Minus, Calculator, Lock, Package, CreditCard, Banknote, QrCode } from 'lucide-react';
+import { LogOut, ShoppingCart, Barcode, ArrowLeft, Trash2, Search, Plus, Minus, Lock, Package, CreditCard, Banknote, QrCode } from 'lucide-react';
 
 const s = {
     container: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#f3f4f6', fontFamily: 'Inter, sans-serif', overflow: 'hidden' },
@@ -99,32 +99,71 @@ export default function PosTerminal() {
         
         const term = search.toLowerCase();
         
-        const exactMatch = products.find(p => p.sku?.toLowerCase() === term || p.id.toString() === term);
+        // 1. Tenta achar EXATO primeiro (Barcode ou SKU)
+        const exactMatch = products.find(p => p.barcode === term || p.sku?.toLowerCase() === term || p.id.toString() === term);
         if (exactMatch && term.length > 2) { 
-            addToCart(exactMatch);
-            setSearch('');
-            return;
+            // Se for exato e longo o suficiente (evita ids curtos se repetindo), adiciona direto?
+            // Melhor: Deixar o usuário dar Enter. Mas para leitores de código de barras (que mandam enter no final),
+            // a lógica ideal fica no onKeyDown do input ou aqui se o leitor for muito rápido.
+            // Para segurança, vamos deixar o filtro e o Enter seleciona o primeiro.
         }
 
         const results = products.filter(p => 
             p.name.toLowerCase().includes(term) || 
-            (p.sku && p.sku.toLowerCase().includes(term))
+            (p.sku && p.sku.toLowerCase().includes(term)) ||
+            (p.barcode && p.barcode.includes(term))
         ).slice(0, 10);
 
         setFilteredProducts(results);
+        setActiveIndex(results.length > 0 ? 0 : -1);
     }, [search, products]);
+
+    // Manipula tecla ENTER na busca
+    const handleSearchKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            // 1. Se tem um código de barras exato digitado
+            const exact = products.find(p => p.barcode === search);
+            if(exact) {
+                addToCart(exact);
+                return;
+            }
+            
+            // 2. Se tem itens filtrados e um selecionado
+            if (filteredProducts.length > 0 && activeIndex >= 0) {
+                addToCart(filteredProducts[activeIndex]);
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveIndex(prev => (prev < filteredProducts.length - 1 ? prev + 1 : prev));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveIndex(prev => (prev > 0 ? prev - 1 : prev));
+        }
+    };
 
     // Carrinho
     const addToCart = (product) => {
         setCart(prev => {
             const existing = prev.find(item => item.product_id === product.id);
             if (existing) {
-                return prev.map(item => item.product_id === product.id ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * item.unit_price } : item);
+                return prev.map(item => item.product_id === product.id ? { 
+                    ...item, 
+                    quantity: item.quantity + 1, 
+                    subtotal: (item.quantity + 1) * item.unit_price 
+                } : item);
             }
-            return [...prev, { product_id: product.id, name: product.name, unit_price: Number(product.sale_price), quantity: 1, subtotal: Number(product.sale_price) }];
+            return [...prev, { 
+                product_id: product.id, 
+                name: product.name, 
+                unit_price: Number(product.sale_price), 
+                quantity: 1, 
+                subtotal: Number(product.sale_price) 
+            }];
         });
         setSearch(''); 
         setFilteredProducts([]); 
+        // Mantém foco no input
         setTimeout(() => searchInputRef.current?.focus(), 50);
     };
 
@@ -142,7 +181,7 @@ export default function PosTerminal() {
 
     // --- LÓGICA DE PAGAMENTO ---
     const totalAmount = cart.reduce((acc, item) => acc + item.subtotal, 0);
-    const finalTotal = totalAmount - (Number(discount) || 0);
+    const finalTotal = Math.max(0, totalAmount - (Number(discount) || 0));
     const change = Math.max(0, (Number(amountPaid) || 0) - finalTotal);
 
     const handleOpenPayModal = () => {
@@ -167,6 +206,7 @@ export default function PosTerminal() {
             addToast({type:'success', title:'Venda Finalizada!'});
             setCart([]);
             setShowPayModal(false);
+            setTimeout(() => searchInputRef.current?.focus(), 100);
         } catch (error) {
             addToast({type:'error', title: error.response?.data?.message || 'Erro ao finalizar'});
         }
@@ -211,7 +251,7 @@ export default function PosTerminal() {
 
     if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Carregando...</div>;
 
-    // TELA ABERTURA
+    // TELA ABERTURA DE CAIXA
     if (!session) {
         return (
             <div style={s.container}>
@@ -265,7 +305,8 @@ export default function PosTerminal() {
                                 autoFocus 
                                 placeholder="F2 - Digite nome ou código de barras..." 
                                 value={search} 
-                                onChange={e=>setSearch(e.target.value)} 
+                                onChange={e=>setSearch(e.target.value)}
+                                onKeyDown={handleSearchKeyDown} // Captura Enter
                                 style={{width:'100%', padding:'14px 14px 14px 45px', fontSize:'1.1rem', border:'1px solid #d1d5db', borderRadius:'8px', boxSizing:'border-box'}} 
                             />
                             
@@ -277,11 +318,11 @@ export default function PosTerminal() {
                                             key={p.id} 
                                             style={{
                                                 ...s.resultItem,
-                                                background: index === activeIndex ? '#f3f4f6' : 'white'
+                                                background: index === activeIndex ? '#f3f4f6' : 'white',
+                                                borderLeft: index === activeIndex ? '4px solid #2563eb' : '4px solid transparent'
                                             }} 
                                             onClick={() => addToCart(p)}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                            onMouseEnter={() => setActiveIndex(index)}
                                         >
                                             <div style={{flex: 1}}>
                                                 <div style={{fontWeight:'600', color:'#1f2937', fontSize:'1rem', marginBottom:'4px'}}>
@@ -289,7 +330,7 @@ export default function PosTerminal() {
                                                 </div>
                                                 <div style={{display:'flex', alignItems:'center', gap:'12px', fontSize:'0.85rem', color:'#6b7280'}}>
                                                     <span style={{display:'flex', alignItems:'center', gap:'4px'}}>
-                                                        <Barcode size={14}/> {p.sku || 'S/C'}
+                                                        <Barcode size={14}/> {p.barcode || p.sku || 'S/C'}
                                                     </span>
                                                     <span style={{color:'#e5e7eb'}}>|</span>
                                                     <span style={{display:'flex', alignItems:'center', gap:'4px', color: (p.stock || 0) > 0 ? '#059669' : '#dc2626', fontWeight:'500'}}>
@@ -307,37 +348,54 @@ export default function PosTerminal() {
                         </div>
                     </div>
                     
-                    <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#9ca3af', border:'2px dashed #e5e7eb', borderRadius:'12px', background:'rgba(255,255,255,0.5)'}}>
-                        <Barcode size={48} style={{opacity:0.2}}/>
+                    {/* Placeholder visual se não tiver nada */}
+                    <div style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#9ca3af', border:'2px dashed #e5e7eb', borderRadius:'12px', background:'rgba(255,255,255,0.5)', marginTop:'20px'}}>
+                        <Barcode size={64} style={{opacity:0.1, marginBottom:10}}/>
+                        <p style={{margin:0, opacity:0.6}}>Aguardando leitura de produto...</p>
                     </div>
                 </div>
 
                 <div style={s.rightPanel}>
-                    <div style={s.cartHeader}><h3 style={{margin:0}}>Cupom</h3></div>
+                    <div style={s.cartHeader}><h3 style={{margin:0}}>Cupom de Venda</h3></div>
                     <div style={s.cartList}>
+                        {cart.length === 0 && (
+                            <div style={{padding:'40px', textAlign:'center', color:'#9ca3af'}}>
+                                Carrinho vazio
+                            </div>
+                        )}
                         {cart.map((item, idx) => (
                             <div key={idx} style={s.cartItem}>
                                 <div style={{flex:1}}><div style={{fontWeight:'500'}}>{item.name}</div><small>{fmt(item.unit_price)} x</small></div>
                                 <div style={{display:'flex', alignItems:'center', gap:10}}>
                                     <div style={{display:'flex', alignItems:'center', border:'1px solid #ddd', borderRadius:'4px'}}><button onClick={()=>updateQuantity(idx, -1)} style={{padding:'4px'}}><Minus size={12}/></button><span style={{padding:'0 8px'}}>{item.quantity}</span><button onClick={()=>updateQuantity(idx, 1)} style={{padding:'4px'}}><Plus size={12}/></button></div>
-                                    <div style={{fontWeight:'bold', width:'70px', textAlign:'right'}}>{fmt(item.subtotal)}</div>
+                                    <div style={{fontWeight:'bold', width:'80px', textAlign:'right'}}>{fmt(item.subtotal)}</div>
                                     <Trash2 size={16} color="#ef4444" style={{cursor:'pointer'}} onClick={()=>removeFromCart(idx)}/>
                                 </div>
                             </div>
                         ))}
                     </div>
                     <div style={s.totalBox}>
-                        <div style={{display:'flex', justifyContent:'space-between', fontSize:'1.5rem', fontWeight:'800', marginBottom:'20px'}}><span>TOTAL</span><span>{fmt(totalAmount)}</span></div>
-                        <button onClick={handleOpenPayModal} disabled={cart.length===0} style={{width:'100%', padding:'16px', background: cart.length>0?'#10b981':'#d1d5db', color:'white', border:'none', borderRadius:'8px', fontSize:'1.2rem', fontWeight:'bold', cursor:'pointer'}}>Finalizar (F9)</button>
+                        <div style={{display:'flex', justifyContent:'space-between', fontSize:'1.8rem', fontWeight:'800', marginBottom:'20px', color:'#1f2937'}}><span>TOTAL</span><span>{fmt(totalAmount)}</span></div>
+                        <button onClick={handleOpenPayModal} disabled={cart.length===0} style={{width:'100%', padding:'18px', background: cart.length>0?'#10b981':'#d1d5db', color:'white', border:'none', borderRadius:'8px', fontSize:'1.2rem', fontWeight:'bold', cursor: cart.length>0?'pointer':'not-allowed'}}>
+                            FINALIZAR (F9)
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* MODAL PAGAMENTO (NOVO) */}
+            {/* MODAL PAGAMENTO */}
             {showPayModal && (
                 <div style={s.modalOverlay}>
                     <div style={s.modal}>
-                        <h2 style={{marginTop:0}}>Pagamento</h2>
+                        <h2 style={{marginTop:0, marginBottom:'20px', color:'#1f2937'}}>Pagamento</h2>
+                        
+                        <div style={{marginBottom:20}}>
+                            <div style={{display:'flex', justifyContent:'space-between', fontSize:'1.2rem', fontWeight:'bold', marginBottom:10}}>
+                                <span>Total a Pagar</span>
+                                <span>{fmt(finalTotal)}</span>
+                            </div>
+                        </div>
+
                         <div style={{display:'flex', gap:10, marginBottom:20}}>
                             <button onClick={()=>setPaymentMethod('money')} style={{...s.methodBtn, ...(paymentMethod==='money'?s.methodBtnActive:{})}}><Banknote size={24}/> Dinheiro</button>
                             <button onClick={()=>setPaymentMethod('credit')} style={{...s.methodBtn, ...(paymentMethod==='credit'?s.methodBtnActive:{})}}><CreditCard size={24}/> Crédito</button>
@@ -345,52 +403,55 @@ export default function PosTerminal() {
                             <button onClick={()=>setPaymentMethod('pix')} style={{...s.methodBtn, ...(paymentMethod==='pix'?s.methodBtnActive:{})}}><QrCode size={24}/> Pix</button>
                         </div>
 
-                        <div style={{marginBottom:15}}>
-                            <label style={{display:'block', fontWeight:600}}>Total da Venda</label>
-                            <div style={{fontSize:'1.5rem', fontWeight:'bold', color:'#374151'}}>{fmt(totalAmount)}</div>
-                        </div>
-
                         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:20}}>
                             <div>
-                                <label style={{display:'block', marginBottom:5}}>Desconto (R$)</label>
-                                <input type="number" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)} style={{width:'100%', padding:'10px', fontSize:'1.1rem', border:'1px solid #d1d5db', borderRadius:'6px', boxSizing:'border-box'}} />
+                                <label style={{display:'block', marginBottom:5, fontWeight:'600', fontSize:'0.9rem'}}>Desconto (R$)</label>
+                                <input type="number" step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)} style={{width:'100%', padding:'12px', fontSize:'1.1rem', border:'1px solid #d1d5db', borderRadius:'8px', boxSizing:'border-box'}} />
                             </div>
                             <div>
-                                <label style={{display:'block', marginBottom:5}}>Valor Recebido</label>
-                                <input autoFocus type="number" step="0.01" value={amountPaid} onChange={e=>setAmountPaid(e.target.value)} style={{width:'100%', padding:'10px', fontSize:'1.1rem', border:'1px solid #d1d5db', borderRadius:'6px', boxSizing:'border-box'}} />
+                                <label style={{display:'block', marginBottom:5, fontWeight:'600', fontSize:'0.9rem'}}>Valor Recebido</label>
+                                <input autoFocus type="number" step="0.01" value={amountPaid} onChange={e=>setAmountPaid(e.target.value)} style={{width:'100%', padding:'12px', fontSize:'1.1rem', border:'1px solid #d1d5db', borderRadius:'8px', boxSizing:'border-box'}} />
                             </div>
                         </div>
 
-                        <div style={{background:'#f0f9ff', padding:'15px', borderRadius:'8px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <span style={{fontSize:'1.1rem', color:'#0369a1'}}>Troco:</span>
-                            <span style={{fontSize:'1.5rem', fontWeight:'bold', color:'#0369a1'}}>{fmt(change)}</span>
+                        <div style={{background: change > 0 ? '#dcfce7' : '#f3f4f6', padding:'15px', borderRadius:'8px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <span style={{fontSize:'1.1rem', color: change > 0 ? '#166534' : '#4b5563'}}>Troco:</span>
+                            <span style={{fontSize:'1.5rem', fontWeight:'bold', color: change > 0 ? '#166534' : '#1f2937'}}>{fmt(change)}</span>
                         </div>
 
                         <div style={{display:'flex', gap:10}}>
-                            <button onClick={()=>setShowPayModal(false)} style={{flex:1, padding:'15px', background:'#e5e7eb', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'600'}}>Cancelar</button>
-                            <button onClick={handleFinishSale} style={{flex:1, padding:'15px', background:'#10b981', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', fontSize:'1.1rem'}}>Confirmar</button>
+                            <button onClick={()=>setShowPayModal(false)} style={{flex:1, padding:'15px', background:'#e5e7eb', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'600', color:'#4b5563'}}>Cancelar</button>
+                            <button onClick={handleFinishSale} style={{flex:1, padding:'15px', background:'#10b981', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', fontSize:'1.1rem'}}>
+                                Confirmar Pagamento
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* MODAL FECHAMENTO (MANTIDO) */}
+            {/* MODAL FECHAMENTO */}
             {showCloseModal && closeData && (
                 <div style={s.modalOverlay}>
                     <div style={s.modal}>
-                        <h2 style={{marginTop:0, borderBottom:'1px solid #eee', paddingBottom:10}}>Conferência de Caixa</h2>
-                        <div style={{background:'#f9fafb', padding:'15px', borderRadius:'8px', marginBottom:'20px'}}>
-                            <div style={s.summaryRow}><span>Abertura:</span> <span style={s.summaryValue}>{fmt(closeData.opening_balance)}</span></div>
-                            <div style={s.summaryRow}><span>Vendas Dinheiro:</span> <span style={{...s.summaryValue, color:'#10b981'}}>+ {fmt(closeData.total_cash_sales)}</span></div>
-                            <div style={{borderTop:'1px dashed #ddd', margin:'10px 0'}}></div>
-                            <div style={{display:'flex', justifyContent:'space-between', fontWeight:'bold', color:'#2563eb'}}><span>Esperado (Gaveta):</span><span>{fmt(closeData.expected_in_drawer)}</span></div>
+                        <h2 style={{marginTop:0, borderBottom:'1px solid #eee', paddingBottom:15, marginBottom:20}}>Fechamento de Caixa</h2>
+                        
+                        <div style={{background:'#f8fafc', padding:'15px', borderRadius:'8px', marginBottom:'20px', border:'1px solid #e2e8f0'}}>
+                            <div style={s.summaryRow}><span>Fundo de Troco (Abertura):</span> <span style={s.summaryValue}>{fmt(closeData.opening_balance)}</span></div>
+                            <div style={s.summaryRow}><span>Vendas em Dinheiro:</span> <span style={{...s.summaryValue, color:'#10b981'}}>+ {fmt(closeData.total_cash_sales)}</span></div>
+                            <div style={{borderTop:'1px dashed #cbd5e1', margin:'10px 0'}}></div>
+                            <div style={{display:'flex', justifyContent:'space-between', fontWeight:'bold', color:'#2563eb', fontSize:'1.1rem'}}><span>Total Esperado (Gaveta):</span><span>{fmt(closeData.expected_in_drawer)}</span></div>
                         </div>
+
                         <form onSubmit={handleCloseSession}>
-                            <label style={{display:'block', marginBottom:5}}>Valor Contado</label>
-                            <input required type="number" step="0.01" value={closingBalance} onChange={e=>setClosingBalance(e.target.value)} style={{width:'100%', padding:'10px', fontSize:'1.1rem', border:'1px solid #d1d5db', borderRadius:'6px', boxSizing:'border-box', marginBottom:15}} />
+                            <label style={{display:'block', marginBottom:8, fontWeight:'600'}}>Valor Contado na Gaveta</label>
+                            <input required type="number" step="0.01" value={closingBalance} onChange={e=>setClosingBalance(e.target.value)} style={{width:'100%', padding:'12px', fontSize:'1.2rem', border:'1px solid #d1d5db', borderRadius:'8px', boxSizing:'border-box', marginBottom:20}} placeholder="R$ 0,00" />
+                            
+                            <label style={{display:'block', marginBottom:8, fontWeight:'600'}}>Observações</label>
+                            <textarea value={closingNotes} onChange={e=>setClosingNotes(e.target.value)} rows="2" style={{width:'100%', padding:'10px', fontSize:'0.9rem', border:'1px solid #d1d5db', borderRadius:'8px', boxSizing:'border-box', marginBottom:20}} placeholder="Diferenças, sangrias..."></textarea>
+
                             <div style={{display:'flex', gap:10}}>
-                                <button type="button" onClick={()=>setShowCloseModal(false)} style={{flex:1, padding:'12px', background:'#e5e7eb', border:'none', borderRadius:'6px'}}>Cancelar</button>
-                                <button type="submit" style={{flex:1, padding:'12px', background:'#ef4444', color:'white', border:'none', borderRadius:'6px', fontWeight:'bold'}}>Fechar</button>
+                                <button type="button" onClick={()=>setShowCloseModal(false)} style={{flex:1, padding:'12px', background:'#e5e7eb', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'600'}}>Voltar</button>
+                                <button type="submit" style={{flex:1, padding:'12px', background:'#ef4444', color:'white', border:'none', borderRadius:'8px', fontWeight:'bold', cursor:'pointer'}}>Encerrar Sessão</button>
                             </div>
                         </form>
                     </div>

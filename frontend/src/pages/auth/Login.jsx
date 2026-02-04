@@ -19,13 +19,42 @@ export default function Login() {
         addToast({ type: 'warning', title: 'Atenção', message: 'Preencha todos os campos.' });
         return;
     }
+    
     setIsLoading(true);
+    
     const result = await signIn(email, password);
+    
     if (result.success) {
-      navigate('/dashboard');
+      // --- LÓGICA DE REDIRECIONAMENTO POR FUNÇÃO (ROLE) ---
+      try {
+          // Lemos do localStorage para garantir que pegamos os dados atualizados pós-login
+          const storedUser = localStorage.getItem('saas_user');
+          const userObj = storedUser ? JSON.parse(storedUser) : {};
+          const role = userObj.role || 'admin'; // fallback para admin se não tiver role
+
+          switch (role) {
+              case 'caixa':
+                  navigate('/dashboard/pos'); // Caixa vai direto pro PDV
+                  break;
+              case 'producao':
+                  navigate('/dashboard/pcp'); // Produção vai direto pro PCP
+                  break;
+              case 'vendedor':
+                  navigate('/dashboard/sales'); // Vendedor vai para Vendas
+                  break;
+              default:
+                  navigate('/dashboard'); // Admin/RH/Outros vão para o Dashboard
+                  break;
+          }
+      } catch (error) {
+          console.error("Erro no redirecionamento:", error);
+          navigate('/dashboard'); // Fallback de segurança
+      }
+
     } else {
       addToast({ type: 'error', title: 'Erro no acesso', message: result.message });
     }
+    
     setIsLoading(false);
   };
 
@@ -82,7 +111,7 @@ export default function Login() {
           </button>
         </form>
 
-        {/* --- NOVO ATALHO PARA O PORTAL DO COLABORADOR --- */}
+        {/* --- ATALHO PARA O PORTAL DO COLABORADOR --- */}
         <div style={{marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #e5e7eb'}}>
             <Link 
                 to="/portal/login" 

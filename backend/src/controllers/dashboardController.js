@@ -1,12 +1,11 @@
 const { query } = require('../config/db');
 
 // ==========================================
-// 1. DASHBOARD COMPLETO (Stats, Gráficos, OS)
+// 1. DASHBOARD COMPLETO (Stats, Gráficos, OS, Vendas, Financeiro)
 // ==========================================
 const getDashboardStats = async (req, res) => {
     try {
-        // --- CORREÇÃO DE SEGURANÇA E COMPATIBILIDADE ---
-        // Tenta obter o ID de ambas as formas (snake_case do banco ou camelCase do token novo)
+        // --- SEGURANÇA E COMPATIBILIDADE ---
         const tenantId = req.user.tenant_id || req.user.tenantId;
 
         if (!tenantId) {
@@ -19,16 +18,20 @@ const getDashboardStats = async (req, res) => {
         startOfMonth.setDate(1);
         startOfMonth.setHours(0,0,0,0);
 
-        // --- QUERY 1: TOTAIS DO MÊS ---
-        const totalsQuery = `
+        // --- 1. FINANCEIRO (Mês Atual + Saldo Geral) ---
+        const financialQuery = `
             SELECT 
-                COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as income,
-                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expense
+                -- Mês Atual
+                COALESCE(SUM(CASE WHEN type = 'income' AND date >= $2 THEN amount ELSE 0 END), 0) as month_income,
+                COALESCE(SUM(CASE WHEN type = 'expense' AND date >= $2 THEN amount ELSE 0 END), 0) as month_expense,
+                -- Total Histórico (Saldo Geral)
+                COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income_all,
+                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expense_all
             FROM transactions 
-            WHERE tenant_id = $1 AND date >= $2 AND status = 'completed'
+            WHERE tenant_id = $1 AND status = 'completed'
         `;
 
-        // --- QUERY 2: GRÁFICO FINANCEIRO (Últimos 6 meses) ---
+        // --- 2. GRÁFICO FINANCEIRO (Últimos 6 meses) ---
         const financeChartQuery = `
             SELECT 
                 TO_CHAR(date, 'Mon/YY') as label,
@@ -44,27 +47,20 @@ const getDashboardStats = async (req, res) => {
             ORDER BY 2, 3 ASC
         `;
 
-        // --- QUERY 3: GRÁFICO OS (Últimos 7 dias) ---
+        // --- 3. GRÁFICO OS (Diário - 7 dias) ---
         const osDailyQuery = `
-            SELECT 
-                TO_CHAR(created_at, 'DD/MM') as label,
-                COUNT(*) as count
+            SELECT TO_CHAR(created_at, 'DD/MM') as label, COUNT(*) as count
             FROM service_orders
-            WHERE tenant_id = $1 
-              AND created_at >= CURRENT_DATE - INTERVAL '6 days'
+            WHERE tenant_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '6 days'
             GROUP BY 1, created_at::DATE
             ORDER BY created_at::DATE ASC
         `;
 
-        // --- QUERY 4: STATUS DAS OS (Pizza) ---
-        const osStatusQuery = `
-            SELECT status, COUNT(*) as count 
-            FROM service_orders 
-            WHERE tenant_id = $1 
-            GROUP BY status
-        `;
+        // --- 4. STATUS DAS OS (Pizza) ---
+        const osStatusQuery = `SELECT status, COUNT(*) as count FROM service_orders WHERE tenant_id = $1 GROUP BY status`;
 
-        // --- QUERY 5: ALERTA ESTOQUE ---
+        // --- 5. ALERTA ESTOQUE (Top 5 críticos) ---
+        // CORREÇÃO: Alterado para usar apenas 'stock' já que 'stock_quantity' não existe
         const lowStockQuery = `
             SELECT id, name, stock, min_stock 
             FROM products 
@@ -72,7 +68,7 @@ const getDashboardStats = async (req, res) => {
             ORDER BY stock ASC LIMIT 5
         `;
 
-        // --- QUERY 6: ÚLTIMAS TRANSAÇÕES ---
+        // --- 6. ÚLTIMAS TRANSAÇÕES ---
         const recentTransQuery = `
             SELECT id, description, amount, type, date, status
             FROM transactions
@@ -80,57 +76,96 @@ const getDashboardStats = async (req, res) => {
             ORDER BY date DESC LIMIT 5
         `;
 
-        // Executa todas as queries em paralelo para performance
-        const [totals, financeChart, osDaily, osStatus, lowStock, recentTrans] = await Promise.all([
-            query(totalsQuery, [tenantId, startOfMonth]),
+        // --- 7. VENDAS (Mês Atual) ---
+        const salesQuery = `
+            SELECT COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total
+            FROM sales 
+            WHERE tenant_id = $1 AND created_at >= $2
+        `;
+
+        // --- 8. ORÇAMENTOS (Quotes) ---
+        const quotesQuery = `SELECT status, COUNT(*) as count FROM quotes WHERE tenant_id = $1 GROUP BY status`;
+
+        // --- 9. TICKETS (Suporte) ---
+        const ticketsQuery = `SELECT status, COUNT(*) as count FROM tickets WHERE tenant_id = $1 GROUP BY status`;
+
+        // Execução segura das Promises
+        const results = await Promise.allSettled([
+            query(financialQuery, [tenantId, startOfMonth]),
             query(financeChartQuery, [tenantId]),
             query(osDailyQuery, [tenantId]),
             query(osStatusQuery, [tenantId]),
             query(lowStockQuery, [tenantId]),
-            query(recentTransQuery, [tenantId])
+            query(recentTransQuery, [tenantId]),
+            query(salesQuery, [tenantId, startOfMonth]),
+            query(quotesQuery, [tenantId]),
+            query(ticketsQuery, [tenantId])
         ]);
 
-        // Processamento dos dados para o Frontend
-        const income = parseFloat(totals.rows[0]?.income || 0);
-        const expense = parseFloat(totals.rows[0]?.expense || 0);
+        // Helpers para extrair dados
+        const getRows = (index) => results[index].status === 'fulfilled' ? results[index].value.rows : [];
+        const getFirstRow = (index) => results[index].status === 'fulfilled' ? (results[index].value.rows[0] || {}) : {};
 
-        // Mapeamento de Status OS (Tradução)
-        const osStatusMap = {
-            'open': 'Abertas',
-            'in_progress': 'Em Andamento',
-            'completed': 'Finalizadas',
-            'waiting': 'Aguardando',
-            'canceled': 'Canceladas'
-        };
+        // Extração
+        const finData = getFirstRow(0);
+        const financeChartData = getRows(1);
+        const osDailyData = getRows(2);
+        const osStatusData = getRows(3);
+        const lowStockData = getRows(4); // Agora deve funcionar com 'stock'
+        const recentTransData = getRows(5);
+        const salesData = getFirstRow(6);
+        const quotesData = getRows(7);
+        const ticketsData = getRows(8);
 
-        const osChartData = osStatus.rows.map(r => ({
-            name: osStatusMap[r.status] || r.status,
-            value: parseInt(r.count),
-            statusKey: r.status
-        }));
+        // Processamento Financeiro
+        const income = parseFloat(finData.month_income || 0);
+        const expense = parseFloat(finData.month_expense || 0);
+        const totalIncome = parseFloat(finData.total_income_all || 0);
+        const totalExpense = parseFloat(finData.total_expense_all || 0);
 
-        const totalOS = osStatus.rows.reduce((acc, r) => acc + parseInt(r.count), 0);
+        // Mapeamentos
+        const osStatusMap = { 'open': 'Abertas', 'in_progress': 'Em Andamento', 'completed': 'Finalizadas', 'waiting': 'Aguardando', 'canceled': 'Canceladas', 'pending': 'Pendente', 'approved': 'Aprovado' };
+        const ticketColorMap = { 'open': '#3b82f6', 'pending': '#f59e0b', 'solved': '#10b981', 'closed': '#9ca3af' };
 
+        // Retorno JSON
         return res.json({
             financial: {
                 income,
                 expense,
-                balance: income - expense,
-                history: financeChart.rows.map(r => ({
+                balance: income - expense, 
+                totalBalance: totalIncome - totalExpense,
+                history: financeChartData.map(r => ({
                     label: r.label,
                     Receitas: parseFloat(r.income),
                     Despesas: parseFloat(r.expense)
                 }))
             },
             os: {
-                total: totalOS,
-                statusData: osChartData,
-                dailyData: osDaily.rows.map(r => ({ label: r.label, Qtd: parseInt(r.count) }))
+                total: osStatusData.reduce((acc, r) => acc + parseInt(r.count), 0),
+                statusData: osStatusData.map(r => ({
+                    name: osStatusMap[r.status] || r.status,
+                    value: parseInt(r.count),
+                    statusKey: r.status
+                })),
+                dailyData: osDailyData.map(r => ({ label: r.label, Qtd: parseInt(r.count) }))
             },
+            sales: {
+                total: parseFloat(salesData.total || 0),
+                count: parseInt(salesData.count || 0)
+            },
+            quotes: quotesData.map(r => ({
+                name: osStatusMap[r.status] || r.status,
+                value: parseInt(r.count)
+            })),
+            tickets: ticketsData.map(r => ({
+                name: r.status,
+                value: parseInt(r.count),
+                color: ticketColorMap[r.status] || '#888'
+            })),
             stock: {
-                low: lowStock.rows
+                low: lowStockData
             },
-            recentTransactions: recentTrans.rows
+            recentTransactions: recentTransData
         });
 
     } catch (error) {
@@ -140,12 +175,11 @@ const getDashboardStats = async (req, res) => {
 };
 
 // ==========================================
-// 2. ATIVIDADE RECENTE (Endpoint Leve)
+// 2. ATIVIDADE RECENTE
 // ==========================================
 const getRecentActivity = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id || req.user.tenantId;
-
         if (!tenantId) return res.status(400).json({ error: "Tenant ID ausente." });
 
         const result = await query(
@@ -154,34 +188,32 @@ const getRecentActivity = async (req, res) => {
              ORDER BY created_at DESC LIMIT 5`,
             [tenantId]
         );
-        
         res.json(result.rows);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Erro ao carregar atividades' });
+        res.json([]);
     }
 };
 
 // ==========================================
-// 3. STATS SIMPLES (Topo do Dashboard)
+// 3. STATS SIMPLES
 // ==========================================
-// Caso você precise de um endpoint rápido apenas para os cards do topo
 const getStats = async (req, res) => {
     try {
         const tenantId = req.user.tenant_id || req.user.tenantId;
-        
         if (!tenantId) return res.status(400).json({ error: "Tenant ID ausente." });
 
-        const [clients, products, sales] = await Promise.all([
+        const results = await Promise.allSettled([
             query('SELECT COUNT(*) FROM clients WHERE tenant_id = $1', [tenantId]),
             query('SELECT COUNT(*) FROM products WHERE tenant_id = $1', [tenantId]),
             query('SELECT SUM(total_amount) FROM sales WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL \'30 days\'', [tenantId])
         ]);
 
+        const getVal = (idx, field = 'count') => results[idx].status === 'fulfilled' ? (results[idx].value.rows[0]?.[field] || 0) : 0;
+
         res.json({
-            totalClients: parseInt(clients.rows[0]?.count || 0),
-            totalProducts: parseInt(products.rows[0]?.count || 0),
-            monthlyRevenue: parseFloat(sales.rows[0]?.sum || 0)
+            totalClients: parseInt(getVal(0)),
+            totalProducts: parseInt(getVal(1)),
+            monthlyRevenue: parseFloat(getVal(2, 'sum'))
         });
     } catch (err) {
         console.error(err);

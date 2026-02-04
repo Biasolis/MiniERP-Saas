@@ -1,5 +1,5 @@
 const { query } = require('../config/db');
-const { hashPassword } = require('../utils/security');
+const { hashPassword } = require('../utils/security'); // Usa o seu utilitário existente
 
 // ==========================================
 // 1. CONFIGURAÇÕES DA EMPRESA
@@ -12,7 +12,7 @@ const getTenantSettings = async (req, res) => {
                 id, name, slug, closing_day, plan_tier, max_users, active,
                 primary_color, secondary_color,
                 address, phone, document, email_contact, website, footer_message,
-                os_observation_message, os_warranty_terms -- <--- NOVOS CAMPOS
+                os_observation_message, os_warranty_terms
             FROM tenants 
             WHERE id = $1
         `;
@@ -32,7 +32,7 @@ const updateTenantSettings = async (req, res) => {
             name, closing_day, address, phone, document, 
             email_contact, website, footer_message, 
             primary_color, secondary_color,
-            os_observation_message, os_warranty_terms // <--- NOVOS CAMPOS
+            os_observation_message, os_warranty_terms 
         } = req.body;
 
         if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
@@ -42,7 +42,7 @@ const updateTenantSettings = async (req, res) => {
             SET name=$1, closing_day=$2, address=$3, phone=$4, document=$5, 
                 email_contact=$6, website=$7, footer_message=$8, 
                 primary_color=$9, secondary_color=$10,
-                os_observation_message=$11, os_warranty_terms=$12, -- <--- NOVOS CAMPOS
+                os_observation_message=$11, os_warranty_terms=$12,
                 updated_at=NOW()
             WHERE id=$13
             RETURNING *
@@ -85,26 +85,75 @@ const addMember = async (req, res) => {
 
         if (!name || !email || !password) return res.status(400).json({ message: 'Dados incompletos.' });
 
+        // Verifica Limite do Plano
         const tenantCheck = await query('SELECT max_users FROM tenants WHERE id = $1', [tenantId]);
         const countCheck = await query('SELECT COUNT(*) FROM users WHERE tenant_id = $1', [tenantId]);
         
-        if (parseInt(countCheck.rows[0].count) >= tenantCheck.rows[0].max_users) {
+        if (tenantCheck.rows[0].max_users && parseInt(countCheck.rows[0].count) >= tenantCheck.rows[0].max_users) {
             return res.status(403).json({ message: 'Limite de usuários atingido.' });
         }
 
+        // Verifica Email
         const check = await query('SELECT id FROM users WHERE email = $1', [email]);
         if (check.rows.length > 0) return res.status(400).json({ message: 'Email já está em uso.' });
 
+        // Hash da Senha
         const hashedPassword = await hashPassword(password);
         
+        // Validação de Role Segura
+        const allowedRoles = ['admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte'];
+        const safeRole = allowedRoles.includes(role) ? role : 'vendedor';
+
         const result = await query(
-            `INSERT INTO users (tenant_id, name, email, password_hash, role, active) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, name, email, role`,
-            [tenantId, name, email, hashedPassword, role || 'user']
+            `INSERT INTO users (tenant_id, name, email, password_hash, role, active) 
+             VALUES ($1, $2, $3, $4, $5, true) 
+             RETURNING id, name, email, role`,
+            [tenantId, name, email, hashedPassword, safeRole]
         );
         return res.status(201).json(result.rows[0]);
     } catch (error) {
-        console.error(error);
+        console.error('Erro AddMember:', error);
         return res.status(500).json({ message: 'Erro ao criar usuário.' });
+    }
+};
+
+// --- NOVA FUNÇÃO: EDITAR MEMBRO ---
+const updateMember = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const userId = req.params.id;
+        const { name, email, role, password } = req.body;
+
+        // Verifica se o usuário pertence à empresa
+        const userCheck = await query('SELECT id FROM users WHERE id = $1 AND tenant_id = $2', [userId, tenantId]);
+        if (userCheck.rows.length === 0) return res.status(404).json({ message: 'Usuário não encontrado.' });
+
+        // Validação de Role Segura
+        const allowedRoles = ['admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte'];
+        const safeRole = allowedRoles.includes(role) ? role : 'vendedor';
+
+        let sql = `UPDATE users SET name = $1, email = $2, role = $3`;
+        const params = [name, email, safeRole];
+        let counter = 4;
+
+        // Só atualiza a senha se ela foi enviada e não estiver vazia
+        if (password && password.trim() !== '') {
+            const hashedPassword = await hashPassword(password);
+            sql += `, password_hash = $${counter}`;
+            params.push(hashedPassword);
+            counter++;
+        }
+
+        sql += ` WHERE id = $${counter} AND tenant_id = $${counter + 1}`;
+        params.push(userId, tenantId);
+
+        await query(sql, params);
+        
+        return res.json({ message: 'Usuário atualizado com sucesso.' });
+
+    } catch (error) {
+        console.error('Erro UpdateMember:', error);
+        return res.status(500).json({ message: 'Erro ao atualizar usuário.' });
     }
 };
 
@@ -177,13 +226,14 @@ const deleteCustomField = async (req, res) => {
 
 module.exports = {
     getTenantSettings, updateTenantSettings,
-    getTeam, addMember, removeMember,
+    getTeam, addMember, updateMember, removeMember, // <--- Adicionado updateMember aqui
     getCustomFields, saveCustomField, deleteCustomField,
     // Aliases
     getSettings: getTenantSettings,
     updateSettings: updateTenantSettings,
     getUsers: getTeam,
     createUser: addMember,
+    updateUser: updateMember, // <--- Alias para rotas
     deleteUser: removeMember,
     createCustomField: saveCustomField
 };

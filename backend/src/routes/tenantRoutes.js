@@ -13,6 +13,7 @@ router.put('/settings', tenantController.updateTenantSettings);
 router.get('/users', tenantController.getTeam);
 router.post('/users', tenantController.addMember);
 router.delete('/users/:id', tenantController.removeMember);
+router.put('/users/:id', tenantController.updateMember);
 
 // Campos Personalizados (NOVO)
 router.get('/custom-fields', tenantController.getCustomFields);

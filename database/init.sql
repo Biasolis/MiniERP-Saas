@@ -649,3 +649,60 @@ BEGIN
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ====================================================
+-- 1. CORREÇÃO DE USUÁRIOS (Para evitar erro de Constraint)
+-- ====================================================
+-- Define 'admin' para quem estiver com cargo vazio ou inválido
+UPDATE users 
+SET role = 'admin' 
+WHERE role IS NULL 
+   OR role NOT IN ('admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte');
+
+-- Aplica a regra de segurança nos cargos
+ALTER TABLE users DROP CONSTRAINT IF EXISTS check_user_role;
+
+ALTER TABLE users 
+ADD CONSTRAINT check_user_role 
+CHECK (role IN ('admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte'));
+
+-- ====================================================
+-- 2. PRODUTOS: Adicionar Código de Barras
+-- ====================================================
+ALTER TABLE products 
+ADD COLUMN IF NOT EXISTS barcode VARCHAR(100);
+
+-- Cria índice para busca rápida no PDV
+CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+
+-- ====================================================
+-- 3. SEGURANÇA: Impedir Estoque em Serviços (Trigger)
+-- ====================================================
+-- Função que verifica o tipo do produto antes de mover estoque
+CREATE OR REPLACE FUNCTION check_service_stock_movement()
+RETURNS TRIGGER AS $$
+DECLARE
+    product_type VARCHAR;
+BEGIN
+    -- Busca o tipo do produto
+    SELECT type INTO product_type FROM products WHERE id = NEW.product_id;
+
+    -- Se for serviço, bloqueia o INSERT na tabela de movimentação
+    IF product_type = 'service' THEN
+        RAISE EXCEPTION 'Não é permitido movimentar estoque de Serviços.';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Remove trigger antiga se existir (para evitar duplicidade)
+DROP TRIGGER IF EXISTS trg_block_service_stock ON inventory_movements;
+
+-- Aplica a Trigger na tabela CORRETA (inventory_movements)
+CREATE TRIGGER trg_block_service_stock
+BEFORE INSERT ON inventory_movements
+FOR EACH ROW
+EXECUTE FUNCTION check_service_stock_movement();
+
+ALTER TABLE transactions ALTER COLUMN amount TYPE NUMERIC(15, 2);

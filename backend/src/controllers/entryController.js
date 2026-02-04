@@ -7,7 +7,7 @@ const createEntry = async (req, res) => {
         const userId = req.user.id;
         const { 
             invoice_number, supplier_name, entry_date, items, invoice_url,
-            generate_expense // Novo campo vindo do front
+            generate_expense 
         } = req.body;
 
         if (!items || items.length === 0) {
@@ -32,27 +32,34 @@ const createEntry = async (req, res) => {
             const cost = Number(item.unit_cost);
             const subtotal = qty * cost;
 
-            // Insere Item da Entrada
+            // Insere Item da Entrada (Isso acontece para Produtos e Serviços, para constar na nota)
             await query(
                 `INSERT INTO product_entry_items (entry_id, product_id, quantity, unit_cost, subtotal)
                  VALUES ($1, $2, $3, $4, $5)`,
                 [entryId, item.product_id, qty, cost, subtotal]
             );
 
-            // ATUALIZA PRODUTO: Sobe Estoque e Atualiza Custo
-            await query(
-                `UPDATE products 
-                 SET stock = stock + $1, cost_price = $2 
-                 WHERE id = $3 AND tenant_id = $4`,
-                [qty, cost, item.product_id, tenantId]
-            );
+            // --- VERIFICAÇÃO DE TIPO DE PRODUTO ---
+            const prodCheck = await query('SELECT type FROM products WHERE id = $1', [item.product_id]);
+            const isService = prodCheck.rows[0]?.type === 'service';
 
-            // Registra Movimentação
-            await query(
-                `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
-                 VALUES ($1, $2, 'in', $3, 'purchase', $4, $5)`,
-                [tenantId, item.product_id, qty, `NF ${invoice_number || 'S/N'} - ${supplier_name || 'Fornecedor'}`, userId]
-            );
+            // Se for PRODUTO FÍSICO, movimenta estoque. Se for SERVIÇO, ignora.
+            if (!isService) {
+                // ATUALIZA PRODUTO: Sobe Estoque e Atualiza Custo
+                await query(
+                    `UPDATE products 
+                     SET stock = stock + $1, cost_price = $2 
+                     WHERE id = $3 AND tenant_id = $4`,
+                    [qty, cost, item.product_id, tenantId]
+                );
+
+                // Registra Movimentação de Estoque
+                await query(
+                    `INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
+                     VALUES ($1, $2, 'in', $3, 'purchase', $4, $5)`,
+                    [tenantId, item.product_id, qty, `NF ${invoice_number || 'S/N'} - ${supplier_name || 'Fornecedor'}`, userId]
+                );
+            }
 
             totalAmount += subtotal;
         }
@@ -114,7 +121,7 @@ const getEntryDetails = async (req, res) => {
         if (entryRes.rows.length === 0) return res.status(404).json({ message: 'Entrada não encontrada.' });
 
         const itemsRes = await query(`
-            SELECT i.*, p.name as product_name, p.sku
+            SELECT i.*, p.name as product_name, p.sku, p.type
             FROM product_entry_items i
             JOIN products p ON i.product_id = p.id
             WHERE i.entry_id = $1
@@ -126,7 +133,7 @@ const getEntryDetails = async (req, res) => {
     }
 };
 
-// Excluir Entrada (Com Estorno de Estoque)
+// Excluir Entrada (Com Estorno de Estoque SE não for serviço)
 const deleteEntry = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
@@ -135,28 +142,33 @@ const deleteEntry = async (req, res) => {
 
         await query('BEGIN');
 
-        // 1. Busca itens para estornar estoque
-        const itemsRes = await query('SELECT product_id, quantity FROM product_entry_items WHERE entry_id = $1', [id]);
+        // 1. Busca itens para estornar estoque, trazendo o TIPO do produto
+        const itemsRes = await query(`
+            SELECT i.product_id, i.quantity, p.type 
+            FROM product_entry_items i
+            JOIN products p ON i.product_id = p.id
+            WHERE i.entry_id = $1
+        `, [id]);
         
         for (const item of itemsRes.rows) {
-            // Remove do estoque (Estorno)
-            await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.product_id]);
-            
-            // Registra movimentação de estorno
-            await query(`
-                INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
-                VALUES ($1, $2, 'out', $3, 'correction', $4, $5)
-            `, [tenantId, item.product_id, item.quantity, `Estorno NF Entrada #${id}`, userId]);
+            // Só estorna se NÃO for serviço
+            if (item.type !== 'service') {
+                // Remove do estoque (Estorno)
+                await query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.product_id]);
+                
+                // Registra movimentação de estorno
+                await query(`
+                    INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, reason, notes, created_by)
+                    VALUES ($1, $2, 'out', $3, 'correction', $4, $5)
+                `, [tenantId, item.product_id, item.quantity, `Estorno NF Entrada #${id}`, userId]);
+            }
         }
 
         // 2. Exclui a Nota (Cascade apaga itens da tabela product_entry_items)
         await query('DELETE FROM product_entries WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
 
-        // Nota: A transação financeira gerada não é excluída automaticamente por segurança, 
-        // mas poderia ser feito buscando pelo description/data se necessário.
-
         await query('COMMIT');
-        return res.json({ message: 'Entrada excluída e estoque estornado.' });
+        return res.json({ message: 'Entrada excluída e estoque estornado (se aplicável).' });
 
     } catch (error) {
         await query('ROLLBACK');

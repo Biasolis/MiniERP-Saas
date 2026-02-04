@@ -4,7 +4,9 @@ const { query } = require('../config/db');
 const getProducts = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
-        const sql = `
+        const { search, barcode } = req.query; // Adicionado suporte a barcode no filtro
+
+        let sql = `
             SELECT *, 
             (sale_price - cost_price) as profit_margin,
             CASE 
@@ -14,9 +16,27 @@ const getProducts = async (req, res) => {
             END as low_stock_alert
             FROM products 
             WHERE tenant_id = $1 
-            ORDER BY name ASC
         `;
-        const result = await query(sql, [tenantId]);
+        
+        const params = [tenantId];
+        let paramCounter = 2;
+
+        if (barcode) {
+            sql += ` AND barcode = $${paramCounter}`;
+            params.push(barcode);
+            paramCounter++;
+        }
+
+        // Se tiver search e NÃO for barcode exato, busca por nome/desc
+        if (search && !barcode) {
+            sql += ` AND (name ILIKE $${paramCounter} OR description ILIKE $${paramCounter} OR sku ILIKE $${paramCounter})`;
+            params.push(`%${search}%`);
+            paramCounter++;
+        }
+
+        sql += ` ORDER BY name ASC`;
+
+        const result = await query(sql, params);
         return res.json(result.rows);
     } catch (error) {
         console.error(error);
@@ -57,18 +77,22 @@ const createProduct = async (req, res) => {
         const userId = req.user.id;
         const { 
             name, description, price, sale_price, cost_price, 
-            stock, min_stock, sku, unit, category, type, commission_rate 
+            stock, min_stock, sku, unit, category, type, commission_rate, barcode 
         } = req.body;
 
         if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
+
+        // Validação de Barcode único
+        if (barcode) {
+            const check = await query('SELECT id FROM products WHERE barcode = $1 AND tenant_id = $2', [barcode, tenantId]);
+            if (check.rows.length > 0) return res.status(400).json({ message: 'Código de barras já existe.' });
+        }
 
         const itemType = type || 'product';
         const finalSalePrice = Number(price) || Number(sale_price) || 0;
         const initialStock = itemType === 'service' ? 0 : (Number(stock) || 0);
         const minStockVal = itemType === 'service' ? 0 : (Number(min_stock) || 5);
         
-        // Se commission_rate vier vazio ou zero, pode ser null (para usar a do vendedor) ou 0 se quiser explicitar.
-        // Aqui assumimos que se vier '', vira NULL.
         const commRate = (commission_rate === '' || commission_rate === null) ? null : Number(commission_rate);
 
         await query('BEGIN');
@@ -76,9 +100,9 @@ const createProduct = async (req, res) => {
         const insertSql = `
             INSERT INTO products (
                 tenant_id, name, description, sale_price, cost_price, 
-                stock, min_stock, sku, unit, category, type, commission_rate
+                stock, min_stock, sku, unit, category, type, commission_rate, barcode
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `;
         
@@ -86,7 +110,7 @@ const createProduct = async (req, res) => {
             tenantId, name, description, 
             finalSalePrice, cost_price || 0, 
             initialStock, minStockVal, 
-            sku, unit || 'un', category, itemType, commRate
+            sku, unit || 'un', category, itemType, commRate, barcode || null
         ]);
         
         const newProduct = result.rows[0];
@@ -115,8 +139,14 @@ const updateProduct = async (req, res) => {
         const { id } = req.params;
         const { 
             name, description, price, sale_price, cost_price, 
-            min_stock, sku, unit, category, type, stock, commission_rate 
+            min_stock, sku, unit, category, type, stock, commission_rate, barcode 
         } = req.body;
+
+        // Validação de Barcode único na edição
+        if (barcode) {
+            const check = await query('SELECT id FROM products WHERE barcode = $1 AND tenant_id = $2 AND id != $3', [barcode, tenantId, id]);
+            if (check.rows.length > 0) return res.status(400).json({ message: 'Código de barras já em uso.' });
+        }
 
         const finalSalePrice = Number(price) || Number(sale_price) || 0;
         let targetStock = stock;
@@ -128,8 +158,8 @@ const updateProduct = async (req, res) => {
             UPDATE products 
             SET name=$1, description=$2, sale_price=$3, cost_price=$4, 
                 min_stock=$5, sku=$6, unit=$7, category=$8, type=$9,
-                stock=$10, commission_rate=$11
-            WHERE id=$12 AND tenant_id=$13
+                stock=$10, commission_rate=$11, barcode=$12
+            WHERE id=$13 AND tenant_id=$14
             RETURNING *
         `;
         
@@ -137,7 +167,7 @@ const updateProduct = async (req, res) => {
             name, description, finalSalePrice, cost_price || 0, 
             type === 'service' ? 0 : (min_stock || 0), 
             sku, unit, category, type,
-            targetStock, commRate,
+            targetStock, commRate, barcode || null,
             id, tenantId
         ]);
 
@@ -160,7 +190,7 @@ const adjustStock = async (req, res) => {
 
         if (!quantity || quantity <= 0) return res.status(400).json({ message: 'Quantidade inválida.' });
 
-        const checkType = await query('SELECT type, stock FROM products WHERE id = $1', [id]);
+        const checkType = await query('SELECT type, stock FROM products WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
         if (checkType.rows.length === 0) return res.status(404).json({ message: 'Item não encontrado.' });
         
         if (checkType.rows[0].type === 'service') {
@@ -202,6 +232,7 @@ const deleteProduct = async (req, res) => {
         const tenantId = req.user.tenantId;
         const { id } = req.params;
 
+        // Verifica dependências antes de deletar
         const checkOS = await query('SELECT id FROM service_order_items WHERE product_id = $1 LIMIT 1', [id]);
         if (checkOS.rows.length > 0) return res.status(400).json({ message: 'Item em uso (OS).' });
 

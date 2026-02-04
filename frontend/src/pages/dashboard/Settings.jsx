@@ -6,7 +6,7 @@ import { ToastContext } from '../../context/ToastContext';
 import styles from './Settings.module.css';
 import { 
     UserPlus, Trash2, Save, Building, Users, Tags, 
-    Plus, PenTool, Factory, Loader2
+    Plus, PenTool, Factory, Loader2, Shield, Edit // <--- Adicionado Edit
 } from 'lucide-react';
 
 export default function Settings() {
@@ -29,8 +29,10 @@ export default function Settings() {
     const [isCatModalOpen, setIsCatModalOpen] = useState(false);
     const [isFieldModalOpen, setIsFieldModalOpen] = useState(false); 
     
-    // --- FORMS ---
-    const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'user' });
+    // --- FORMS & ESTADOS DE EDIÇÃO ---
+    const [editingUserId, setEditingUserId] = useState(null); // <--- ID do usuário sendo editado
+    const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'vendedor' });
+    
     const [newCat, setNewCat] = useState({ name: '', type: 'expense' });
     const [newField, setNewField] = useState({ label: '', module: 'service_order', type: 'text' });
     const [newDriver, setNewDriver] = useState({ name: '', unit: 'R$', default_value: 0 });
@@ -106,21 +108,62 @@ export default function Settings() {
         catch(e){ addToast({type:'error', title:'Erro ao salvar'}); } 
     }
 
-    async function handleAddUser(e) { 
+    // --- LÓGICA DE USUÁRIOS (CRIAR E EDITAR) ---
+    
+    // Abre o modal (Limpa se for criar, Preenche se for editar)
+    function handleOpenUserModal(user = null) {
+        if (user) {
+            setEditingUserId(user.id);
+            setNewUser({
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                password: '' // Senha vazia na edição (só preenche se quiser trocar)
+            });
+        } else {
+            setEditingUserId(null);
+            setNewUser({ name: '', email: '', password: '', role: 'vendedor' });
+        }
+        setIsUserModalOpen(true);
+    }
+
+    async function handleSaveUser(e) { 
         e.preventDefault(); 
+        
+        // Validação básica
+        if (!newUser.name || !newUser.email) {
+            addToast({type:'warning', title:'Preencha nome e email'});
+            return;
+        }
+        // Se for criação, senha é obrigatória. Se for edição, é opcional.
+        if (!editingUserId && !newUser.password) {
+            addToast({type:'warning', title:'Senha é obrigatória para novos usuários'});
+            return;
+        }
+
         try { 
-            await api.post('/tenant/users', newUser); 
+            if (editingUserId) {
+                // EDITAR (PUT)
+                await api.put(`/tenant/users/${editingUserId}`, newUser);
+                addToast({type:'success', title:'Usuário Atualizado'}); 
+            } else {
+                // CRIAR (POST)
+                await api.post('/tenant/users', newUser); 
+                addToast({type:'success', title:'Usuário Criado'}); 
+            }
+            
             setIsUserModalOpen(false); 
             await loadUsers(); 
-            addToast({type:'success', title:'Criado'}); 
-            setNewUser({name:'', email:'', password:'', role:'user'}); 
+            setNewUser({name:'', email:'', password:'', role:'vendedor'}); 
+            setEditingUserId(null);
+
         } catch(e){ 
-            addToast({type:'error', title: e.response?.data?.message || 'Erro ao criar'}); 
+            addToast({type:'error', title: e.response?.data?.message || 'Erro ao salvar'}); 
         } 
     }
 
     async function handleDeleteUser(id) { 
-        if(!confirm('Remover usuário?')) return; 
+        if(!confirm('Remover usuário permanentemente?')) return; 
         try { await api.delete(`/tenant/users/${id}`); setUsers(users.filter(u=>u.id!==id)); } catch(e){} 
     }
 
@@ -151,6 +194,20 @@ export default function Settings() {
         if(!confirm('Remover?')) return;
         try { await api.delete(`/pcp/settings/drivers/${id}`); loadPCP(); } catch(e){}
     }
+
+    // Helper para traduzir roles
+    const getRoleLabel = (role) => {
+        const roles = {
+            'admin': 'Admin',
+            'vendedor': 'Vendedor',
+            'caixa': 'Caixa PDV',
+            'producao': 'Produção',
+            'financeiro': 'Financeiro',
+            'rh': 'RH',
+            'suporte': 'Suporte'
+        };
+        return roles[role] || role;
+    };
 
     return (
         <DashboardLayout>
@@ -205,7 +262,6 @@ export default function Settings() {
                                     </div>
                                     <div className={styles.formGroup}><label className={styles.label}>Endereço</label><input className={styles.input} value={company.address||''} onChange={e=>setCompany({...company, address:e.target.value})} /></div>
                                     
-                                    {/* NOVOS CAMPOS */}
                                     <div style={{marginTop:'1.5rem', borderTop:'1px solid #eee', paddingTop:'1rem'}}>
                                         <h4 style={{marginBottom:'10px'}}>Configurações de Impressão (OS)</h4>
                                         <div className={styles.formGroup}>
@@ -275,25 +331,47 @@ export default function Settings() {
                             {/* ABA EQUIPE (USUÁRIOS) */}
                             {activeTab === 'users' && (
                                 <div>
-                                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'1rem'}}><h3>Equipe</h3><button className={styles.btnAddUser} onClick={()=>setIsUserModalOpen(true)}><UserPlus size={16}/> Novo Usuário</button></div>
+                                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'1rem'}}>
+                                        <h3>Equipe</h3>
+                                        {/* Botão abre modal limpo */}
+                                        <button className={styles.btnAddUser} onClick={() => handleOpenUserModal(null)}>
+                                            <UserPlus size={16}/> Novo Usuário
+                                        </button>
+                                    </div>
                                     <ul className={styles.userList}>
                                         {users.length === 0 && (
                                             <li style={{padding:'20px', textAlign:'center', background:'#f9fafb', borderRadius:'8px', color:'#666'}}>
-                                                Nenhum usuário encontrado. (Isso é estranho, você deveria estar aqui!)
+                                                Nenhum usuário encontrado.
                                             </li>
                                         )}
                                         {users.map(u => (
                                             <li key={u.id} className={styles.userItem}>
-                                                <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-                                                    <div style={{width:'32px', height:'32px', background:'#e5e7eb', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'bold', color:'#4b5563'}}>
+                                                <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
+                                                    <div style={{width:'36px', height:'36px', background:'#f1f5f9', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'bold', color:'#475569'}}>
                                                         {u.name.charAt(0).toUpperCase()}
                                                     </div>
                                                     <div>
-                                                        <div style={{fontWeight:600}}>{u.name}</div>
-                                                        <div style={{fontSize:'0.8rem', color:'#666'}}>{u.email} - {u.role === 'admin' ? 'Administrador' : 'Usuário'}</div>
+                                                        <div style={{fontWeight:600, color:'#334155'}}>{u.name} {u.is_super_admin && <Shield size={12} color="#2563eb" style={{marginLeft:4, display:'inline'}}/>}</div>
+                                                        <div style={{fontSize:'0.8rem', color:'#64748b'}}>
+                                                            {u.email}
+                                                            <span style={{
+                                                                marginLeft:'8px', background: u.role==='admin'?'#1e293b':'#e2e8f0', color: u.role==='admin'?'white':'#475569', 
+                                                                padding:'2px 6px', borderRadius:'4px', fontSize:'0.7rem', fontWeight:'bold', textTransform:'uppercase'
+                                                            }}>
+                                                                {getRoleLabel(u.role)}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <button onClick={()=>handleDeleteUser(u.id)} className={styles.btnDelete}><Trash2 size={16}/></button>
+                                                <div style={{display:'flex', gap:'8px'}}>
+                                                    {/* Botão de Editar */}
+                                                    <button onClick={() => handleOpenUserModal(u)} className={styles.btnDelete} style={{color:'#2563eb'}} title="Editar">
+                                                        <Edit size={16}/>
+                                                    </button>
+                                                    {!u.is_super_admin && (
+                                                        <button onClick={()=>handleDeleteUser(u.id)} className={styles.btnDelete} title="Remover acesso"><Trash2 size={16}/></button>
+                                                    )}
+                                                </div>
                                             </li>
                                         ))}
                                     </ul>
@@ -304,7 +382,47 @@ export default function Settings() {
                 </div>
             </div>
 
-            {/* MODAIS (MANTIDOS IGUAIS) */}
+            {/* MODAL USUÁRIO (CRIAR/EDITAR) */}
+            <Modal isOpen={isUserModalOpen} onClose={()=>setIsUserModalOpen(false)} title={editingUserId ? "Editar Usuário" : "Novo Usuário"}>
+                <form onSubmit={handleSaveUser}>
+                    <div style={{marginBottom:10}}>
+                        <label className={styles.label}>Nome Completo</label>
+                        <input className={styles.input} placeholder="Ex: João Silva" value={newUser.name} onChange={e=>setNewUser({...newUser, name:e.target.value})} required/>
+                    </div>
+                    <div style={{marginBottom:10}}>
+                        <label className={styles.label}>Email de Acesso</label>
+                        <input className={styles.input} placeholder="joao@empresa.com" type="email" value={newUser.email} onChange={e=>setNewUser({...newUser, email:e.target.value})} required/>
+                    </div>
+                    <div style={{marginBottom:10}}>
+                        <label className={styles.label}>{editingUserId ? "Nova Senha (Opcional)" : "Senha Provisória"}</label>
+                        <input 
+                            className={styles.input} 
+                            type="password" 
+                            placeholder={editingUserId ? "Deixe em branco para manter" : "******"} 
+                            value={newUser.password} 
+                            onChange={e=>setNewUser({...newUser, password:e.target.value})} 
+                            required={!editingUserId} // Obrigatório apenas na criação
+                        />
+                    </div>
+                    <div style={{marginBottom:15}}>
+                        <label className={styles.label}>Cargo / Permissão</label>
+                        <select className={styles.input} value={newUser.role} onChange={e=>setNewUser({...newUser, role:e.target.value})} required>
+                            <option value="admin">Administrador (Acesso Total)</option>
+                            <option value="vendedor">Vendedor (Vendas e Clientes)</option>
+                            <option value="caixa">Operador de Caixa (Apenas PDV)</option>
+                            <option value="producao">Produção / Técnico (OS e Estoque)</option>
+                            <option value="financeiro">Financeiro (Contas e Relatórios)</option>
+                            <option value="rh">Recursos Humanos (Ponto e Folha)</option>
+                            <option value="suporte">Agente de Suporte (Helpdesk)</option>
+                        </select>
+                    </div>
+                    <button className={styles.btnSave} style={{marginTop:'10px', width:'100%'}}>
+                        {editingUserId ? "Salvar Alterações" : "Criar Usuário"}
+                    </button>
+                </form>
+            </Modal>
+            
+            {/* OUTROS MODAIS MANTIDOS */}
             <Modal isOpen={isFieldModalOpen} onClose={()=>setIsFieldModalOpen(false)} title={`Novo Campo`}>
                 <form onSubmit={handleAddField}>
                     <label className={styles.label}>Nome</label><input className={styles.input} value={newField.label} onChange={e=>setNewField({...newField, label:e.target.value})} required />
@@ -312,12 +430,13 @@ export default function Settings() {
                     <button className={styles.btnSave} style={{marginTop:'15px'}}>Criar</button>
                 </form>
             </Modal>
-            <Modal isOpen={isUserModalOpen} onClose={()=>setIsUserModalOpen(false)} title="Novo Usuário">
-                <form onSubmit={handleAddUser}>
-                    <input className={styles.input} placeholder="Nome" value={newUser.name} onChange={e=>setNewUser({...newUser, name:e.target.value})}/><input className={styles.input} placeholder="Email" value={newUser.email} onChange={e=>setNewUser({...newUser, email:e.target.value})}/><input className={styles.input} type="password" placeholder="Senha" value={newUser.password} onChange={e=>setNewUser({...newUser, password:e.target.value})}/><button className={styles.btnSave} style={{marginTop:'10px'}}>Salvar</button>
+            
+            <Modal isOpen={isCatModalOpen} onClose={()=>setIsCatModalOpen(false)} title="Nova Categoria">
+                <form onSubmit={handleAddCat}>
+                    <input className={styles.input} placeholder="Nome (Ex: Aluguel)" value={newCat.name} onChange={e=>setNewCat({...newCat, name:e.target.value})} autoFocus/>
+                    <button className={styles.btnSave} style={{marginTop:'10px'}}>Salvar</button>
                 </form>
             </Modal>
-            <Modal isOpen={isCatModalOpen} onClose={()=>setIsCatModalOpen(false)} title="Categoria"><form onSubmit={handleAddCat}><input className={styles.input} placeholder="Nome" value={newCat.name} onChange={e=>setNewCat({...newCat, name:e.target.value})}/><button className={styles.btnSave} style={{marginTop:'10px'}}>Salvar</button></form></Modal>
         </DashboardLayout>
     );
 }

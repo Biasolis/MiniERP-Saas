@@ -3,6 +3,7 @@ const { hashPassword, comparePassword, generateToken } = require('../utils/secur
 const { sendMail } = require('../config/mailer');
 const crypto = require('crypto');
 const logger = require('../config/logger');
+const jwt = require('jsonwebtoken'); // Adicionei o jwt aqui pois é usado no login
 
 // ==========================================
 // 1. REGISTRO (Cria Empresa e Usuário Admin)
@@ -22,30 +23,67 @@ const register = async (req, res) => {
         const emailCheck = await query('SELECT id FROM users WHERE email = $1', [email]);
         if (emailCheck.rows.length > 0) return res.status(400).json({ message: 'Email já cadastrado.' });
 
-        // Cria o Tenant
-        const tenantResult = await query(
-            'INSERT INTO tenants (name, slug, active) VALUES ($1, $2, true) RETURNING id', 
-            [companyName, slug]
-        );
-        const tenantId = tenantResult.rows[0].id;
+        const client = await require('../config/db').pool.connect();
 
-        // Cria o Usuário Admin
-        const hashedPassword = await hashPassword(password);
-        const userResult = await query(
-            `INSERT INTO users (tenant_id, name, email, password_hash, role, is_super_admin) 
-             VALUES ($1, $2, $3, $4, 'admin', false) 
-             RETURNING id, name, email, role, tenant_id`,
-            [tenantId, name, email, hashedPassword]
-        );
+        try {
+            await client.query('BEGIN');
 
-        const user = userResult.rows[0];
-        
-        // Gera Token
-        const token = generateToken(user);
+            // 1. Cria o Tenant (Empresa)
+            const tenantResult = await client.query(
+                'INSERT INTO tenants (name, slug, active) VALUES ($1, $2, true) RETURNING id', 
+                [companyName, slug]
+            );
+            const tenantId = tenantResult.rows[0].id;
 
-        logger.info(`Nova empresa registrada: ${companyName} (${email})`);
+            // 2. Cria o Usuário Admin
+            const hashedPassword = await hashPassword(password);
+            
+            // CORREÇÃO: Role explicitamente definida como 'admin'
+            const userResult = await client.query(
+                `INSERT INTO users (tenant_id, name, email, password_hash, role, is_super_admin) 
+                 VALUES ($1, $2, $3, $4, 'admin', false) 
+                 RETURNING id, name, email, role, tenant_id`,
+                [tenantId, name, email, hashedPassword]
+            );
 
-        return res.status(201).json({ message: 'Cadastro realizado com sucesso!', token, user });
+            const user = userResult.rows[0];
+
+            // 3. (Opcional) Cria config inicial de Helpdesk para evitar erros depois
+            await client.query(
+                `INSERT INTO helpdesk_config (tenant_id, portal_title, slug) VALUES ($1, $2, $3)`,
+                [tenantId, 'Central de Ajuda', slug]
+            );
+            
+            await client.query('COMMIT');
+
+            // Gera Token usando a função centralizada, mas garantindo isSuperAdmin
+            // Nota: Se generateToken já lida com isso, ótimo. Se não, forçamos aqui.
+            // Para garantir, vamos usar o padrão do Login abaixo que é mais explícito para o SuperAdmin.
+            const token = jwt.sign(
+                { 
+                    id: user.id, 
+                    tenantId: user.tenant_id, 
+                    role: user.role,
+                    isSuperAdmin: false 
+                }, 
+                process.env.JWT_SECRET || 'secret_key', 
+                { expiresIn: '1d' }
+            );
+
+            logger.info(`Nova empresa registrada: ${companyName} (${email})`);
+
+            return res.status(201).json({ 
+                message: 'Cadastro realizado com sucesso!', 
+                token, 
+                user: { ...user, tenantId: user.tenant_id } // Normaliza ID
+            });
+
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
 
     } catch (error) {
         logger.error(`Erro no registro: ${error.message}`);
@@ -54,7 +92,7 @@ const register = async (req, res) => {
 };
 
 // ==========================================
-// 2. LOGIN (CORRIGIDO PARA EVITAR LOOP)
+// 2. LOGIN (CORRIGIDO E OTIMIZADO)
 // ==========================================
 const login = async (req, res) => {
     try {
@@ -89,8 +127,21 @@ const login = async (req, res) => {
             return res.status(401).json({ message: 'Credenciais inválidas.' });
         }
 
-        // Gera Token (Padronizado via utils/security)
-        const token = generateToken(user);
+        // --- GERAÇÃO DO TOKEN COM PERMISSÃO DE SUPER ADMIN ---
+        // Adicionamos explicitamente o isSuperAdmin no payload do token
+        const token = jwt.sign(
+            {
+                id: user.id,
+                tenantId: user.tenant_id,
+                role: user.role || 'admin',
+                
+                // *** PONTO CRÍTICO ***
+                // Garante que o middleware de Super Admin consiga ler essa flag
+                isSuperAdmin: user.is_super_admin 
+            },
+            process.env.JWT_SECRET || 'secret_key',
+            { expiresIn: '1d' }
+        );
 
         // Remove dados sensíveis do retorno
         delete user.password_hash;
@@ -105,7 +156,7 @@ const login = async (req, res) => {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                role: user.role || 'admin', // Garante uma role se vier nulo
+                role: user.role || 'admin', 
                 
                 // --- PULO DO GATO: COMPATIBILIDADE ---
                 tenant_id: user.tenant_id, // Para o Dashboard antigo
@@ -115,6 +166,8 @@ const login = async (req, res) => {
                 companyName: user.company_name,
                 companySlug: user.company_slug,
                 avatar: user.avatar_path,
+                
+                // Envia para o frontend saber se mostra o botão
                 isSuperAdmin: user.is_super_admin
             }
         });
