@@ -8,8 +8,9 @@ exports.employeeLogin = async (req, res) => {
     try {
         const { email, password, access_code } = req.body;
         
+        // CORREÇÃO: Coluna 'cpf' em vez de 'document'
         const result = await query(
-            'SELECT * FROM employees WHERE email = $1 OR document = $1', 
+            'SELECT * FROM employees WHERE email = $1 OR cpf = $1', 
             [email || access_code]
         );
         

@@ -3,15 +3,15 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 // ==========================================
-// 1. ÁREA PÚBLICA (Portal do Cliente)
+// 1. ÁREA PÚBLICA (Portal do Cliente / Helpdesk)
 // ==========================================
 
-// Busca configurações visuais do portal pelo SLUG (sem login)
+// Busca configurações visuais do portal pelo SLUG
 exports.getPortalConfig = async (req, res) => {
     try {
         const { slug } = req.params;
         const result = await pool.query(
-            'SELECT tenant_id, portal_title, primary_color, logo_url FROM helpdesk_config WHERE slug = $1', 
+            'SELECT tenant_id, portal_title, primary_color, logo_url, support_email FROM helpdesk_config WHERE slug = $1', 
             [slug]
         );
         
@@ -24,21 +24,29 @@ exports.getPortalConfig = async (req, res) => {
     }
 };
 
-// Login do Cliente Externo
+// Login do Cliente Externo (via tabela support_users)
 exports.clientLogin = async (req, res) => {
     try {
         const { email, password, slug } = req.body;
 
-        // 1. Descobrir Tenant pelo Slug
-        const configRes = await pool.query('SELECT tenant_id FROM helpdesk_config WHERE slug = $1', [slug]);
-        if (configRes.rows.length === 0) return res.status(404).json({ error: 'Empresa não encontrada' });
-        const tenantId = configRes.rows[0].tenant_id;
+        // 1. Descobrir Tenant
+        let tenantId = null;
+        if (slug) {
+            const configRes = await pool.query('SELECT tenant_id FROM helpdesk_config WHERE slug = $1', [slug]);
+            if (configRes.rows.length === 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+            tenantId = configRes.rows[0].tenant_id;
+        }
 
-        // 2. Buscar Usuário no Tenant correto
-        const userRes = await pool.query(
-            'SELECT * FROM support_users WHERE email = $1 AND tenant_id = $2', 
-            [email, tenantId]
-        );
+        // 2. Buscar Usuário
+        let userQuery = 'SELECT * FROM support_users WHERE email = $1';
+        let userParams = [email];
+        
+        if (tenantId) {
+            userQuery += ' AND tenant_id = $2';
+            userParams.push(tenantId);
+        }
+
+        const userRes = await pool.query(userQuery, userParams);
 
         if (userRes.rows.length === 0) return res.status(401).json({ error: 'Credenciais inválidas' });
         const user = userRes.rows[0];
@@ -50,11 +58,11 @@ exports.clientLogin = async (req, res) => {
         // 4. Gerar Token
         const token = jwt.sign(
             { id: user.id, tenantId: user.tenant_id, role: 'support_user', name: user.name },
-            process.env.JWT_SECRET,
+            process.env.JWT_SECRET || 'secret',
             { expiresIn: '8h' }
         );
 
-        res.json({ token, user: { name: user.name, email: user.email } });
+        res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: 'support_user' } });
 
     } catch (error) {
         console.error(error);
@@ -66,17 +74,14 @@ exports.clientLogin = async (req, res) => {
 // 2. CONFIGURAÇÃO (Painel Admin)
 // ==========================================
 
-// Buscar Configuração Atual (GET /api/tickets/config)
 exports.getConfig = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
-        
+        const tenantId = req.user.tenantId;
         const result = await pool.query(
             'SELECT slug, portal_title, primary_color, support_email, auto_assign, allow_guest_tickets FROM helpdesk_config WHERE tenant_id = $1', 
             [tenantId]
         );
         
-        // Se não existir, retorna padrão em vez de 404 para não quebrar o form
         if (result.rows.length > 0) {
             res.json(result.rows[0]);
         } else {
@@ -90,24 +95,20 @@ exports.getConfig = async (req, res) => {
             });
         }
     } catch (error) {
-        console.error("Erro em getConfig:", error);
         res.status(500).json({ error: 'Erro ao buscar configurações' });
     }
 };
 
-// Salvar Configuração (POST/PUT /api/tickets/config)
 exports.saveConfig = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
+        const tenantId = req.user.tenantId;
         const { slug, portal_title, primary_color, support_email, auto_assign, allow_guest_tickets } = req.body;
 
-        // Validação de Slug Único
         if (slug) {
             const check = await pool.query('SELECT tenant_id FROM helpdesk_config WHERE slug = $1 AND tenant_id != $2', [slug, tenantId]);
-            if (check.rows.length > 0) return res.status(400).json({ error: 'Este endereço (slug) já está em uso por outra empresa.' });
+            if (check.rows.length > 0) return res.status(400).json({ error: 'Slug já em uso.' });
         }
 
-        // Upsert (Insere ou Atualiza)
         const result = await pool.query(`
             INSERT INTO helpdesk_config (tenant_id, slug, portal_title, primary_color, support_email, auto_assign, allow_guest_tickets)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -123,26 +124,21 @@ exports.saveConfig = async (req, res) => {
 
         res.json(result.rows[0]);
     } catch (error) {
-        console.error("Erro em saveConfig:", error);
         res.status(500).json({ error: 'Erro ao salvar configurações' });
     }
 };
 
 // ==========================================
-// 3. CATEGORIAS E USUÁRIOS (Gestão)
+// 3. CATEGORIAS E USUÁRIOS
 // ==========================================
 
-// Listar Categorias (GET /api/tickets/admin/categories)
 exports.getCategories = async (req, res) => {
     try {
-        let tenantId = req.user?.tenantId || req.user?.tenant_id;
-        
-        // Suporte para acesso público via slug
+        let tenantId = req.user?.tenantId;
         if (!tenantId && req.query.slug) {
              const conf = await pool.query('SELECT tenant_id FROM helpdesk_config WHERE slug = $1', [req.query.slug]);
              if (conf.rows.length > 0) tenantId = conf.rows[0].tenant_id;
         }
-
         if(!tenantId) return res.status(400).json({error: 'Contexto não identificado'});
 
         const result = await pool.query('SELECT * FROM ticket_categories WHERE tenant_id = $1 ORDER BY id ASC', [tenantId]);
@@ -152,12 +148,10 @@ exports.getCategories = async (req, res) => {
     }
 };
 
-// Criar Categoria (POST /api/tickets/categories)
 exports.createCategory = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
+        const tenantId = req.user.tenantId;
         const { name, description, sla_hours } = req.body;
-        
         const result = await pool.query(
             'INSERT INTO ticket_categories (tenant_id, name, description, sla_hours) VALUES ($1, $2, $3, $4) RETURNING *',
             [tenantId, name, description, sla_hours || 24]
@@ -168,11 +162,10 @@ exports.createCategory = async (req, res) => {
     }
 };
 
-// Deletar Categoria
 exports.deleteCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        const tenantId = req.user.tenantId || req.user.tenant_id;
+        const tenantId = req.user.tenantId;
         await pool.query('DELETE FROM ticket_categories WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
         res.json({ message: 'Categoria removida' });
     } catch (error) {
@@ -180,31 +173,23 @@ exports.deleteCategory = async (req, res) => {
     }
 };
 
-// Listar Clientes de Suporte (GET /api/tickets/users)
-// Nota: O TicketConfig chama /users esperando lista de clientes, não usuários internos
 exports.getSupportUsers = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
-        const result = await pool.query(
-            'SELECT id, name, email, created_at FROM support_users WHERE tenant_id = $1 ORDER BY created_at DESC',
-            [tenantId]
-        );
+        const tenantId = req.user.tenantId;
+        const result = await pool.query('SELECT id, name, email FROM support_users WHERE tenant_id = $1', [tenantId]);
         res.json(result.rows);
     } catch (error) {
-        res.status(500).json({ error: 'Erro ao buscar clientes' });
+        res.status(500).json({ error: 'Erro ao buscar usuários' });
     }
 };
 
-// Criar Usuário de Suporte (POST /api/tickets/users)
 exports.createSupportUser = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
+        const tenantId = req.user.tenantId;
         const { name, email, password } = req.body;
         const hash = await bcrypt.hash(password, 10);
-
         const result = await pool.query(
-            `INSERT INTO support_users (tenant_id, name, email, password_hash) 
-             VALUES ($1, $2, $3, $4) RETURNING id, name, email`,
+            `INSERT INTO support_users (tenant_id, name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id, name, email`,
             [tenantId, name, email, hash]
         );
         res.status(201).json(result.rows[0]);
@@ -214,37 +199,27 @@ exports.createSupportUser = async (req, res) => {
     }
 };
 
-// Listar Usuários Internos (GET /api/tickets/agents) - Adicionado para evitar erro se for chamado
 exports.getAgents = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
-        const result = await pool.query(
-            'SELECT id, name, email, role FROM users WHERE tenant_id = $1 ORDER BY name ASC',
-            [tenantId]
-        );
+        const tenantId = req.user.tenantId;
+        const result = await pool.query('SELECT id, name, email, role FROM users WHERE tenant_id = $1', [tenantId]);
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Erro ao buscar agentes' });
     }
 };
 
-// Listar Usuários Internos Gerais (Se usado como fallback para users)
-exports.getUsers = async (req, res) => {
-    // Redireciona para getSupportUsers se for a intenção do front, ou getAgents
-    // Como seu front TicketConfig chama /users para listar clientes, usamos getSupportUsers
-    return exports.getSupportUsers(req, res);
-};
+exports.getUsers = exports.getSupportUsers;
 
 // ==========================================
-// 4. OPERAÇÃO DE TICKETS (CRUD)
+// 4. OPERAÇÃO DE TICKETS (CRUD INTERNO)
 // ==========================================
 
-// Listar Tickets
 exports.getTickets = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
+        const tenantId = req.user.tenantId;
         const userId = req.user.id;
-        const role = req.user.role; // support_user, employee, admin, etc
+        const role = req.user.role;
         
         let query = `
             SELECT t.*, c.name as category_name, 
@@ -257,76 +232,61 @@ exports.getTickets = async (req, res) => {
             LEFT JOIN ticket_categories c ON t.category_id = c.id
             LEFT JOIN support_users su ON (t.requester_id = su.id AND t.requester_type = 'support_user')
             LEFT JOIN employees emp ON (t.requester_id = emp.id AND t.requester_type = 'employee')
-            LEFT JOIN users u ON (t.requester_id = u.id AND t.requester_type = 'user')
+            LEFT JOIN users u ON (t.requester_id = u.id AND (t.requester_type = 'user' OR t.requester_type = 'admin'))
             WHERE t.tenant_id = $1
         `;
         const params = [tenantId];
 
-        // Se for cliente ou colaborador, vê apenas os seus
-        const isStaff = ['admin', 'agent', 'manager'].includes(role);
-        if (!isStaff) {
-            query += ` AND t.requester_id = $2`; // AND t.requester_type = $3 (Simplificado)
+        if (!['admin', 'agent', 'manager', 'owner'].includes(role)) {
+            query += ` AND t.requester_id = $2`;
             params.push(userId);
         }
 
         query += ` ORDER BY t.created_at DESC`;
-
         const result = await pool.query(query, params);
         res.json(result.rows);
     } catch (error) {
-        console.error(error);
         res.status(500).json({ error: 'Erro ao buscar tickets' });
     }
 };
 
-// Criar Ticket
 exports.createTicket = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
+        const tenantId = req.user.tenantId;
         const userId = req.user.id;
-        const role = req.user.role || 'user';
-        const { subject, title, description, category_id, priority, category } = req.body;
+        const { subject, description, category_id, priority, requester_id, requester_type } = req.body;
 
-        const finalTitle = title || subject;
+        // Se for admin criando para outro, usa os dados do body, senão usa do usuário logado
+        const role = req.user.role;
+        let finalReqId = userId;
+        let finalReqType = role;
 
-        let finalCatId = category_id;
-        if (!finalCatId && category) {
-            const catRes = await pool.query('SELECT id FROM ticket_categories WHERE tenant_id=$1 AND lower(name)=lower($2)', [tenantId, category]);
-            if(catRes.rows.length > 0) finalCatId = catRes.rows[0].id;
+        if (['admin', 'agent'].includes(role) && requester_id) {
+            finalReqId = requester_id;
+            finalReqType = requester_type || 'support_user';
         }
 
         const result = await pool.query(
             `INSERT INTO tickets (tenant_id, subject, description, category_id, priority, requester_type, requester_id, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, 'open') RETURNING *`,
-            [tenantId, finalTitle, description, finalCatId, priority || 'medium', role, userId]
+            [tenantId, subject, description, category_id, priority || 'medium', finalReqType, finalReqId]
         );
-
         res.status(201).json(result.rows[0]);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Erro ao abrir ticket' });
+        res.status(500).json({ error: 'Erro ao criar ticket' });
     }
 };
 
-// Detalhes e Mensagens
 exports.getTicketDetails = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
-        const userId = req.user.id;
-        const role = req.user.role;
+        const tenantId = req.user.tenantId;
         const { id } = req.params;
 
         const ticketRes = await pool.query(`SELECT * FROM tickets WHERE id = $1 AND tenant_id = $2`, [id, tenantId]);
         if (ticketRes.rows.length === 0) return res.status(404).json({ error: 'Ticket não encontrado' });
-        const ticket = ticketRes.rows[0];
-
-        const isStaff = ['admin', 'agent', 'manager'].includes(role);
-        if (!isStaff && ticket.requester_id !== userId) {
-            return res.status(403).json({ error: 'Acesso negado' });
-        }
-
-        let msgQuery = `
-            SELECT m.*, 
+        
+        const msgs = await pool.query(
+            `SELECT m.*, 
             CASE 
                 WHEN m.sender_type = 'support_user' THEN su.name
                 WHEN m.sender_type = 'employee' THEN emp.name
@@ -335,59 +295,137 @@ exports.getTicketDetails = async (req, res) => {
             FROM ticket_messages m
             LEFT JOIN support_users su ON (m.sender_id = su.id AND m.sender_type = 'support_user')
             LEFT JOIN employees emp ON (m.sender_id = emp.id AND m.sender_type = 'employee')
-            LEFT JOIN users u ON (m.sender_id = u.id AND (m.sender_type = 'user' OR m.sender_type = 'agent' OR m.sender_type = 'admin'))
-            WHERE m.ticket_id = $1
-        `;
+            LEFT JOIN users u ON (m.sender_id = u.id AND m.sender_type IN ('user','agent','admin'))
+            WHERE m.ticket_id = $1 ORDER BY m.created_at ASC`,
+            [id]
+        );
 
-        if (!isStaff) msgQuery += ` AND m.is_internal_note = false`;
-        
-        msgQuery += ` ORDER BY m.created_at ASC`;
-
-        const msgs = await pool.query(msgQuery, [id]);
-
-        res.json({ ticket, messages: msgs.rows });
-
+        res.json({ ticket: ticketRes.rows[0], messages: msgs.rows });
     } catch (error) {
         res.status(500).json({ error: 'Erro ao carregar ticket' });
     }
 };
 
-// Adicionar Mensagem
 exports.addMessage = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
         const userId = req.user.id;
         const role = req.user.role;
-        const { ticketId } = req.params;
+        const { id } = req.params; // ticketRoutes usa :id para addMessageInternal
         const { message, is_internal } = req.body;
 
-        const isInternalNote = (['admin', 'agent'].includes(role)) ? (is_internal || false) : false;
-
-        const result = await pool.query(
+        await pool.query(
             `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal_note)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [ticketId, role, userId, message, isInternalNote]
+             VALUES ($1, $2, $3, $4, $5)`,
+            [id, role, userId, message, is_internal || false]
         );
-
-        res.status(201).json(result.rows[0]);
+        
+        await pool.query('UPDATE tickets SET updated_at = NOW() WHERE id = $1', [id]);
+        res.json({ message: 'Mensagem enviada' });
     } catch (error) {
         res.status(500).json({ error: 'Erro ao enviar mensagem' });
     }
 };
 
-// Atualizar Status
 exports.updateStatus = async (req, res) => {
     try {
-        const tenantId = req.user.tenantId || req.user.tenant_id;
         const { id } = req.params;
         const { status } = req.body;
-
-        await pool.query(
-            'UPDATE tickets SET status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3',
-            [status, id, tenantId]
-        );
+        const tenantId = req.user.tenantId;
+        await pool.query('UPDATE tickets SET status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3', [status, id, tenantId]);
         res.json({ message: 'Status atualizado' });
     } catch (error) {
         res.status(500).json({ error: 'Erro ao atualizar' });
     }
 };
+
+// ==========================================
+// 5. INTEGRAÇÃO COM ROTAS PÚBLICAS (LEGADO/HELPDESK)
+// ==========================================
+// Estas funções são necessárias para que o ticketRoutes.js não quebre.
+// Elas mapeiam as chamadas públicas para a lógica apropriada.
+
+exports.publicAuth = exports.clientLogin;
+
+exports.createTicketPublic = async (req, res) => {
+    // Para criar ticket público, assumimos que o token JWT de support_user foi enviado no Header Authorization
+    // O middleware de rota pública (se houver) ou a lógica aqui deve decodificar
+    // Para simplificar e evitar crash, usamos uma lógica básica de inserção sem depender do req.user do authMiddleware padrão
+    try {
+        const { tenant_id, client_id, subject, description, priority } = req.body;
+        // Validação básica
+        if (!tenant_id || !subject) return res.status(400).json({ error: 'Dados incompletos' });
+
+        const result = await pool.query(
+            `INSERT INTO tickets (tenant_id, requester_id, requester_type, subject, description, priority, status)
+             VALUES ($1, $2, 'support_user', $3, $4, $5, 'open') RETURNING id`,
+            [tenant_id, client_id, subject, description, priority || 'medium']
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Erro ao criar ticket público' });
+    }
+};
+
+exports.listTicketsPublic = async (req, res) => {
+    try {
+        const { clientId } = req.params;
+        const result = await pool.query(
+            `SELECT id, subject, status, priority, created_at, updated_at 
+             FROM tickets WHERE requester_id = $1 AND requester_type = 'support_user' ORDER BY created_at DESC`,
+            [clientId]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao listar tickets' });
+    }
+};
+
+exports.getTicketPublic = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const ticketRes = await pool.query(`SELECT * FROM tickets WHERE id = $1`, [id]);
+        if (ticketRes.rows.length === 0) return res.status(404).json({ error: 'Ticket não encontrado' });
+        
+        const msgs = await pool.query(
+            `SELECT m.*, 
+            CASE 
+                WHEN m.sender_type = 'support_user' THEN su.name
+                WHEN m.sender_type = 'agent' OR m.sender_type = 'admin' THEN u.name
+                ELSE 'Suporte'
+            END as sender_name
+            FROM ticket_messages m
+            LEFT JOIN support_users su ON (m.sender_id = su.id AND m.sender_type = 'support_user')
+            LEFT JOIN users u ON (m.sender_id = u.id AND m.sender_type IN ('agent','admin'))
+            WHERE m.ticket_id = $1 AND m.is_internal_note = false
+            ORDER BY m.created_at ASC`,
+            [id]
+        );
+
+        res.json({ ticket: ticketRes.rows[0], messages: msgs.rows });
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao carregar ticket' });
+    }
+};
+
+exports.addMessagePublic = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { message, sender_id } = req.body; // O ID do remetente deve vir no body se não tiver auth middleware
+
+        await pool.query(
+            `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message)
+             VALUES ($1, 'support_user', $2, $3)`,
+            [id, sender_id, message]
+        );
+        await pool.query("UPDATE tickets SET status = 'open', updated_at = NOW() WHERE id = $1", [id]);
+        res.json({ message: 'Mensagem enviada' });
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao enviar mensagem' });
+    }
+};
+
+// Exports internos adicionais
+exports.createTicketInternal = exports.createTicket;
+exports.addMessageInternal = exports.addMessage;
+exports.updateTicketStatus = exports.updateStatus;

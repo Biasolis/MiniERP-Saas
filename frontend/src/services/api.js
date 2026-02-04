@@ -4,40 +4,52 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
 });
 
-// Interceptor de Resposta
-api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
-    // Se der erro de Autenticação (401)
-    if (error.response && error.response.status === 401) {
-      
-      // Verifica onde o usuário está navegando
-      const currentPath = window.location.pathname;
+api.interceptors.request.use((config) => {
+  const path = window.location.pathname;
+  let token = null;
 
-      // Se estiver no Portal do Colaborador
-      if (currentPath.startsWith('/portal')) {
-         localStorage.removeItem('employee_token');
-         localStorage.removeItem('employee_user');
-         // Evita loop se já estiver no login
-         if (currentPath !== '/portal/login') {
-             window.location.href = '/portal/login';
-         }
-      } 
-      // Se estiver no Painel Admin ou Helpdesk
-      else if (currentPath.startsWith('/helpdesk')) {
-         localStorage.removeItem('helpdesk_token');
-         // Redireciona para a raiz do helpdesk atual (ex: /helpdesk/minha-empresa)
-         // Como não sabemos o slug aqui facilmente, recarregamos a página ou mandamos para login
-      }
-      else {
-         // Fluxo Admin Normal
-         localStorage.removeItem('saas_token');
-         localStorage.removeItem('saas_user');
-         if (currentPath !== '/login') {
-             window.location.href = '/login';
-         }
+  // SEPARAÇÃO DE TOKENS POR ÁREA
+  if (path.startsWith('/helpdesk')) {
+      token = localStorage.getItem('clientToken');
+  } 
+  else if (path.startsWith('/portal')) {
+      token = localStorage.getItem('employeeToken');
+  } 
+  else {
+      token = localStorage.getItem('saas_token'); // Token do Admin
+  }
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    // LIMPEZA CRÍTICA: Remove lixo do header se não tiver token
+    delete config.headers.Authorization;
+    if (api.defaults.headers.common['Authorization']) {
+        config.headers.Authorization = undefined; 
+    }
+  }
+  
+  return config;
+}, (error) => Promise.reject(error));
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      const path = window.location.pathname;
+      if (path.endsWith('/login')) return Promise.reject(error);
+
+      // REDIRECIONAMENTO INTELIGENTE
+      if (path.startsWith('/helpdesk')) {
+          localStorage.removeItem('clientToken');
+          window.location.href = '/helpdesk/login';
+      } else if (path.startsWith('/portal')) {
+          localStorage.removeItem('employeeToken');
+          window.location.href = '/portal/login';
+      } else {
+          localStorage.removeItem('saas_token');
+          localStorage.removeItem('saas_user');
+          window.location.href = '/login';
       }
     }
     return Promise.reject(error);

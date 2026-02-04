@@ -1,128 +1,195 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import { Plus, LogOut, MessageSquare } from 'lucide-react';
+import { ToastContext } from '../../context/ToastContext';
+import { Plus, MessageSquare, Clock, CheckCircle, LogOut, Search } from 'lucide-react';
+import Modal from '../../components/ui/Modal';
 
 export default function HelpdeskPanel() {
-  const { slug } = useParams();
   const navigate = useNavigate();
+  const { addToast } = useContext(ToastContext);
+  
+  const [user, setUser] = useState(null);
   const [tickets, setTickets] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [newTicket, setNewTicket] = useState({ subject: '', description: '', category_id: '' });
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Novo Ticket Form
+  const [newTicket, setNewTicket] = useState({ subject: '', description: '', priority: 'medium' });
 
   useEffect(() => {
-    const token = localStorage.getItem('helpdesk_token');
-    if(!token) navigate(`/helpdesk/${slug}`);
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    loadData();
+    // 1. Verifica Autenticação do Cliente
+    const token = localStorage.getItem('clientToken');
+    const userData = localStorage.getItem('clientUser');
+
+    if (!token || !userData) {
+        navigate('/helpdesk/login');
+        return;
+    }
+
+    const parsedUser = JSON.parse(userData);
+    setUser(parsedUser);
+
+    // 2. Carrega Tickets
+    loadTickets(parsedUser.id);
   }, []);
 
-  const loadData = async () => {
+  const loadTickets = async (clientId) => {
     try {
-        const [tRes, cRes] = await Promise.all([
-            api.get('/tickets'),
-            api.get('/tickets/public/categories?slug=' + slug)
-        ]);
-        setTickets(tRes.data);
-        setCategories(cRes.data);
-    } catch(e) {
-        console.error(e);
+        // Usa a rota pública de listagem
+        const res = await api.get(`/tickets/public/list/${clientId}`);
+        setTickets(res.data);
+    } catch (error) {
+        console.error(error);
+        addToast({ type: 'error', title: 'Erro ao carregar chamados' });
+    } finally {
+        setLoading(false);
     }
   };
 
-  const handleCreate = async (e) => {
+  const handleCreateTicket = async (e) => {
     e.preventDefault();
-    await api.post('/tickets', newTicket);
-    setShowForm(false);
-    setNewTicket({ subject: '', description: '', category_id: '' });
-    loadData();
+    try {
+        if (!user) return;
+
+        // Recupera configuração do tenant (opcional, ou manda fixo se seu sistema for multi-tenant pelo subdominio)
+        // Aqui assumimos que o user já tem o tenant_id vinculado no backend
+        await api.post('/tickets/public/create', {
+            tenant_id: user.tenant_id || 1, // Fallback se não vier no login
+            client_id: user.id,
+            subject: newTicket.subject,
+            description: newTicket.description,
+            priority: newTicket.priority
+        });
+
+        addToast({ type: 'success', title: 'Chamado aberto com sucesso!' });
+        setIsModalOpen(false);
+        setNewTicket({ subject: '', description: '', priority: 'medium' });
+        loadTickets(user.id);
+
+    } catch (error) {
+        addToast({ type: 'error', title: 'Erro ao abrir chamado' });
+    }
   };
 
-  const logout = () => {
-      localStorage.removeItem('helpdesk_token');
-      navigate(`/helpdesk/${slug}`);
+  const handleLogout = () => {
+      localStorage.removeItem('clientToken');
+      localStorage.removeItem('clientUser');
+      navigate('/helpdesk/login');
   };
 
-  // Função para abrir o ticket
-  const openTicket = (id) => {
-      navigate(`/helpdesk/${slug}/ticket/${id}`);
+  const getStatusBadge = (status) => {
+      const styles = {
+          open: { bg: '#dbeafe', color: '#1d4ed8', label: 'Aberto' },
+          pending: { bg: '#fef3c7', color: '#d97706', label: 'Em Andamento' },
+          closed: { bg: '#dcfce7', color: '#15803d', label: 'Resolvido' }
+      };
+      const s = styles[status] || styles.open;
+      return <span style={{background: s.bg, color: s.color, padding:'4px 10px', borderRadius:'12px', fontSize:'0.75rem', fontWeight:'600'}}>{s.label}</span>;
   };
+
+  if (!user) return null;
 
   return (
-    <div style={{minHeight:'100vh', background:'#f1f5f9'}}>
-        <header style={{background:'white', padding:'15px 40px', boxShadow:'0 2px 5px rgba(0,0,0,0.05)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <h2 style={{color:'#1e293b'}}>Central de Ajuda</h2>
-            <button onClick={logout} style={{background:'none', border:'none', cursor:'pointer', color:'#ef4444', display:'flex', alignItems:'center', gap:'5px', fontWeight:'600'}}>
-                <LogOut size={18}/> Sair
-            </button>
-        </header>
+    <div style={{minHeight:'100vh', background:'#f8fafc'}}>
+        {/* Navbar */}
+        <nav style={{background:'white', borderBottom:'1px solid #e2e8f0', padding:'1rem 2rem', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+                <h2 style={{margin:0, color:'#3b82f6'}}>Central de Suporte</h2>
+            </div>
+            <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
+                <span style={{color:'#64748b'}}>Olá, <strong>{user.name}</strong></span>
+                <button onClick={handleLogout} style={{border:'none', background:'transparent', color:'#ef4444', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px'}}>
+                    <LogOut size={18}/> Sair
+                </button>
+            </div>
+        </nav>
 
-        <div style={{maxWidth:'1000px', margin:'40px auto', padding:'0 20px'}}>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-                <h3 style={{color:'#334155'}}>Meus Chamados</h3>
-                <button onClick={() => setShowForm(!showForm)} style={{background:'#2563eb', color:'white', padding:'10px 20px', borderRadius:'8px', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', fontWeight:'bold'}}>
-                    <Plus size={18}/> Novo Chamado
+        {/* Conteúdo */}
+        <div style={{maxWidth:'1000px', margin:'2rem auto', padding:'0 1rem'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'2rem'}}>
+                <h1 style={{fontSize:'1.8rem', color:'#1e293b', margin:0}}>Meus Chamados</h1>
+                <button onClick={() => setIsModalOpen(true)} style={{background:'#3b82f6', color:'white', border:'none', padding:'10px 20px', borderRadius:'8px', cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', fontWeight:'600'}}>
+                    <Plus size={20}/> Novo Chamado
                 </button>
             </div>
 
-            {showForm && (
-                <div style={{background:'white', padding:'25px', borderRadius:'12px', marginBottom:'25px', boxShadow:'0 4px 6px rgba(0,0,0,0.05)'}}>
-                    <form onSubmit={handleCreate} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
-                        <input placeholder="Assunto (Ex: Erro no Login)" value={newTicket.subject} onChange={e => setNewTicket({...newTicket, subject: e.target.value})} style={input} required />
-                        <select value={newTicket.category_id} onChange={e => setNewTicket({...newTicket, category_id: e.target.value})} style={input} required>
-                            <option value="">Selecione o Serviço...</option>
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                        <textarea placeholder="Descreva detalhadamente o que aconteceu..." value={newTicket.description} onChange={e => setNewTicket({...newTicket, description: e.target.value})} style={{...input, height:'100px'}} required />
-                        <div style={{display:'flex', justifyContent:'flex-end', gap:'10px'}}>
-                            <button type="button" onClick={() => setShowForm(false)} style={{padding:'10px 20px', borderRadius:'8px', border:'1px solid #ddd', background:'white', cursor:'pointer'}}>Cancelar</button>
-                            <button type="submit" style={{background:'#10b981', color:'white', padding:'10px 20px', borderRadius:'8px', border:'none', cursor:'pointer', fontWeight:'bold'}}>Abrir Chamado</button>
+            {loading ? <p>Carregando...</p> : (
+                <div style={{background:'white', borderRadius:'12px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)', overflow:'hidden'}}>
+                    {tickets.length === 0 ? (
+                        <div style={{padding:'3rem', textAlign:'center', color:'#94a3b8'}}>
+                            <MessageSquare size={48} style={{opacity:0.2, marginBottom:'1rem'}}/>
+                            <p>Você ainda não abriu nenhum chamado.</p>
                         </div>
-                    </form>
+                    ) : (
+                        <table style={{width:'100%', borderCollapse:'collapse'}}>
+                            <thead style={{background:'#f1f5f9'}}>
+                                <tr style={{textAlign:'left', color:'#64748b', fontSize:'0.9rem'}}>
+                                    <th style={{padding:'1rem'}}>Assunto</th>
+                                    <th style={{padding:'1rem'}}>Status</th>
+                                    <th style={{padding:'1rem'}}>Data</th>
+                                    <th style={{padding:'1rem'}}>Última Atualização</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {tickets.map(ticket => (
+                                    <tr key={ticket.id} onClick={() => navigate(`/helpdesk/ticket/${ticket.id}`)} style={{borderBottom:'1px solid #f1f5f9', cursor:'pointer', transition:'background 0.1s'}}>
+                                        <td style={{padding:'1rem', fontWeight:'500', color:'#334155'}}>{ticket.subject}</td>
+                                        <td style={{padding:'1rem'}}>{getStatusBadge(ticket.status)}</td>
+                                        <td style={{padding:'1rem', color:'#64748b', fontSize:'0.9rem'}}>{new Date(ticket.created_at).toLocaleDateString()}</td>
+                                        <td style={{padding:'1rem', color:'#64748b', fontSize:'0.9rem'}}>{new Date(ticket.updated_at || ticket.created_at).toLocaleDateString()}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             )}
-
-            <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
-                {tickets.length === 0 && <p style={{textAlign:'center', color:'#999'}}>Você ainda não tem chamados.</p>}
-                
-                {tickets.map(t => (
-                    <div 
-                        key={t.id} 
-                        onClick={() => openTicket(t.id)} // CLIQUE AQUI
-                        style={{
-                            background:'white', padding:'20px', borderRadius:'12px', 
-                            borderLeft:`5px solid ${t.status === 'resolved' ? '#10b981' : '#3b82f6'}`,
-                            cursor:'pointer', transition:'transform 0.1s', boxShadow:'0 2px 4px rgba(0,0,0,0.02)'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                        onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
-                    >
-                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <div>
-                                <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-                                    <strong style={{color:'#1e293b', fontSize:'1.05rem'}}>#{t.ticket_number} {t.subject}</strong>
-                                    <span style={{fontSize:'0.75rem', background:'#f1f5f9', padding:'2px 8px', borderRadius:'10px', color:'#64748b'}}>{t.category_name}</span>
-                                </div>
-                                <p style={{color:'#64748b', margin:'5px 0 0 0', fontSize:'0.9rem', display:'flex', alignItems:'center', gap:'5px'}}>
-                                    <MessageSquare size={14}/> Clique para interagir
-                                </p>
-                            </div>
-                            <span style={{
-                                fontSize:'0.8rem', textTransform:'uppercase', fontWeight:'bold', 
-                                color: t.status === 'resolved' ? '#10b981' : '#3b82f6',
-                                background: t.status === 'resolved' ? '#dcfce7' : '#dbeafe',
-                                padding:'5px 10px', borderRadius:'6px'
-                            }}>
-                                {t.status === 'open' ? 'Aberto' : t.status === 'resolved' ? 'Resolvido' : 'Em Andamento'}
-                            </span>
-                        </div>
-                    </div>
-                ))}
-            </div>
         </div>
+
+        {/* Modal Novo Ticket */}
+        <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Abrir Novo Chamado">
+            <form onSubmit={handleCreateTicket} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
+                <div>
+                    <label style={{display:'block', marginBottom:'5px', fontWeight:'500'}}>Assunto</label>
+                    <input 
+                        required 
+                        value={newTicket.subject} 
+                        onChange={e => setNewTicket({...newTicket, subject: e.target.value})}
+                        placeholder="Resumo do problema"
+                        style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1'}}
+                    />
+                </div>
+                <div>
+                    <label style={{display:'block', marginBottom:'5px', fontWeight:'500'}}>Prioridade</label>
+                    <select 
+                        value={newTicket.priority} 
+                        onChange={e => setNewTicket({...newTicket, priority: e.target.value})}
+                        style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1'}}
+                    >
+                        <option value="low">Baixa</option>
+                        <option value="medium">Média</option>
+                        <option value="high">Alta</option>
+                        <option value="urgent">Urgente</option>
+                    </select>
+                </div>
+                <div>
+                    <label style={{display:'block', marginBottom:'5px', fontWeight:'500'}}>Descrição Detalhada</label>
+                    <textarea 
+                        required 
+                        rows="5"
+                        value={newTicket.description} 
+                        onChange={e => setNewTicket({...newTicket, description: e.target.value})}
+                        placeholder="Descreva o que aconteceu..."
+                        style={{width:'100%', padding:'10px', borderRadius:'8px', border:'1px solid #cbd5e1', resize:'vertical'}}
+                    />
+                </div>
+                <div style={{display:'flex', justifyContent:'flex-end', gap:'10px', marginTop:'10px'}}>
+                    <button type="button" onClick={() => setIsModalOpen(false)} style={{padding:'10px 20px', borderRadius:'8px', border:'1px solid #cbd5e1', background:'white', cursor:'pointer'}}>Cancelar</button>
+                    <button type="submit" style={{padding:'10px 20px', borderRadius:'8px', border:'none', background:'#3b82f6', color:'white', fontWeight:'600', cursor:'pointer'}}>Enviar Chamado</button>
+                </div>
+            </form>
+        </Modal>
     </div>
   );
 }
-
-const input = { padding:'12px', borderRadius:'8px', border:'1px solid #cbd5e1', width:'100%', fontSize:'0.95rem' };

@@ -576,3 +576,76 @@ ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id INTEGER;
 
 -- (Opcional) Se a coluna 'action' existir (legado), renomeia ou remove para não confundir
 -- ALTER TABLE audit_logs DROP COLUMN IF EXISTS action;
+
+-- 1. Remove a restrição de chave estrangeira problemática
+-- Isso resolve o erro 42804 imediatamente.
+ALTER TABLE audit_logs DROP CONSTRAINT IF EXISTS audit_logs_tenant_id_fkey;
+
+-- 2. Garante que a coluna tenant_id seja TEXT
+-- Isso permite armazenar UUIDs ou Inteiros sem gerar erros de tipo.
+ALTER TABLE audit_logs ALTER COLUMN tenant_id TYPE TEXT USING tenant_id::TEXT;
+
+-- 3. Atualiza a função do Trigger para ser "Blindada" contra erros
+-- Usa tratamento de exceção para pegar o tenant_id independente do formato.
+CREATE OR REPLACE FUNCTION audit_trigger_function() RETURNS TRIGGER AS $$
+DECLARE
+    rec_id TEXT;
+    old_val JSONB := NULL;
+    new_val JSONB := NULL;
+    op TEXT := TG_OP;
+    tenant TEXT := NULL;
+    app_user TEXT := NULL;
+BEGIN
+    -- Captura ID e Tenant de forma segura
+    IF TG_OP = 'DELETE' THEN
+        rec_id := OLD.id::TEXT;
+        old_val := to_jsonb(OLD);
+        BEGIN 
+            tenant := OLD.tenant_id::TEXT; 
+        EXCEPTION WHEN OTHERS THEN 
+            tenant := NULL; 
+        END;
+    ELSE
+        rec_id := NEW.id::TEXT;
+        new_val := to_jsonb(NEW);
+        
+        IF TG_OP = 'UPDATE' THEN
+            old_val := to_jsonb(OLD);
+        END IF;
+
+        BEGIN 
+            tenant := NEW.tenant_id::TEXT; 
+        EXCEPTION WHEN OTHERS THEN 
+            tenant := NULL; 
+        END;
+    END IF;
+
+    -- Captura o usuário da sessão (setado pelo Middleware do Node.js)
+    BEGIN
+        app_user := current_setting('app.current_user');
+    EXCEPTION WHEN OTHERS THEN
+        app_user := session_user;
+    END;
+
+    -- Insere o log sem restrições de chave estrangeira
+    INSERT INTO audit_logs (
+        tenant_id, 
+        table_name, 
+        operation, 
+        record_id, 
+        old_data, 
+        new_data, 
+        changed_by
+    ) VALUES (
+        tenant,
+        TG_TABLE_NAME,
+        op,
+        rec_id,
+        old_val,
+        new_val,
+        app_user
+    );
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;

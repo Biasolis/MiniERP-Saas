@@ -3,39 +3,53 @@ const router = express.Router();
 const ticketController = require('../controllers/ticketController');
 const authMiddleware = require('../middlewares/authMiddleware');
 
+// ==========================================
+// 1. ROTAS PÚBLICAS (HELPDESK / CLIENTE)
+// ==========================================
+// Acesso externo (sem token de admin do sistema)
+
+router.post('/public/auth', ticketController.clientLogin);
+router.post('/public/create', ticketController.createTicketPublic); // Se usar lógica simplificada ou wrapper
+router.get('/public/list/:clientId', ticketController.listTicketsPublic);
+router.get('/public/ticket/:id', ticketController.getTicketPublic); // Nome ajustado para evitar colisão
+router.post('/public/ticket/:id/messages', ticketController.addMessagePublic);
+router.get('/public/config/:slug', ticketController.getPortalConfig); // Config visual do portal
+
+// ==========================================
+// 2. ROTAS PRIVADAS (PAINEL INTERNO)
+// ==========================================
+// Requer login no sistema (Admin/Colaborador)
 router.use(authMiddleware);
 
-// --- 1. CONFIGURAÇÕES (Admin) ---
-// GET /api/tickets/config
-router.get('/config', ticketController.getConfig); 
-// POST /api/tickets/config
-router.post('/config', ticketController.saveConfig); 
+// --- A. ROTAS ESPECÍFICAS (DEVEM VIR ANTES DE /:id) ---
 
-// --- 2. CATEGORIAS ---
-// GET /api/tickets/admin/categories
-router.get('/admin/categories', ticketController.getCategories);
-// POST /api/tickets/categories (Atende o handleAddCategory do front)
-router.post('/categories', ticketController.createCategory); 
-// POST /api/tickets/admin/categories (Alias de segurança)
-router.post('/admin/categories', ticketController.createCategory);
-// DELETE
-router.delete('/admin/categories/:id', ticketController.deleteCategory);
+// Configuração do Portal
+router.get('/config', ticketController.getConfig);
+router.post('/config', ticketController.saveConfig);
+router.put('/config', ticketController.saveConfig); // Suporte a PUT também
 
-// --- 3. USUÁRIOS / CLIENTES DE SUPORTE ---
-// GET /api/tickets/users (Atende loadUsers do front)
-// Mapeado para getSupportUsers pois o front lista clientes cadastrados
+// Categorias
+router.get('/categories', ticketController.getCategories);
+router.post('/categories', ticketController.createCategory);
+router.delete('/categories/:id', ticketController.deleteCategory);
+
+// Usuários de Suporte (Clientes do Helpdesk)
 router.get('/users', ticketController.getSupportUsers);
-// POST /api/tickets/users (Atende handleAddSupportUser do front)
 router.post('/users', ticketController.createSupportUser);
 
-// --- 4. AGENTES INTERNOS (Opcional, se precisar no futuro) ---
+// Agentes (Usuários do Sistema)
 router.get('/agents', ticketController.getAgents);
 
-// --- 5. OPERAÇÃO DE TICKETS ---
-router.get('/', ticketController.getTickets);
-router.post('/', ticketController.createTicket);
-router.get('/:id', ticketController.getTicketDetails);
-router.post('/:ticketId/messages', ticketController.addMessage);
-router.patch('/:id/status', ticketController.updateStatus);
+// --- B. ROTAS DE TICKETS (CRUD GERAL) ---
+
+router.get('/', ticketController.getTickets); // Listar todos
+router.post('/', ticketController.createTicket); // Criar novo
+
+// --- C. ROTAS DINÂMICAS (DEVEM VIR POR ÚLTIMO) ---
+// O erro acontecia porque estas estavam capturando "config" e "users"
+
+router.get('/:id', ticketController.getTicketDetails); // Detalhes
+router.put('/:id/status', ticketController.updateStatus); // Mudar status
+router.post('/:id/messages', ticketController.addMessage); // Responder
 
 module.exports = router;
