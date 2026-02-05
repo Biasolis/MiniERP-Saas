@@ -118,10 +118,10 @@ const getOrderDetails = async (req, res) => {
             ORDER BY d.id ASC
         `, [id, tenantId]);
 
-        // 4. Busca Dados da Empresa (CORRIGIDO: INCLUINDO OS NOVOS CAMPOS)
+        // 4. Busca Dados da Empresa
         const tenantRes = await query(
             `SELECT name, document, phone, email_contact, address, footer_message,
-                    os_observation_message, os_warranty_terms  -- <--- ADICIONADO AQUI
+                    os_observation_message, os_warranty_terms
              FROM tenants WHERE id = $1`,
             [tenantId]
         );
@@ -359,6 +359,304 @@ const updateStatus = async (req, res) => {
     }
 };
 
+// --- IMPRESSÃO (CORRIGIDA: UTF-8 + LAYOUT @PAGE) ---
+const printOrder = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const { id } = req.params;
+        const { mode } = req.query; // 'thermal', 'a4', 'a5_landscape'
+
+        // 1. Busca Dados da OS + Tenant
+        const osRes = await query(`
+            SELECT so.*, 
+                   c.name as client_name, c.phone as client_phone, c.document as client_doc,
+                   c.address, c.number, c.neighborhood, c.city, c.state,
+                   t.name as tenant_name, t.phone as tenant_phone, t.document as tenant_doc,
+                   t.logo_url, t.os_warranty_terms, t.os_observation_message
+            FROM service_orders so
+            JOIN clients c ON so.client_id = c.id
+            JOIN tenants t ON so.tenant_id = t.id
+            WHERE so.id = $1 AND so.tenant_id = $2
+        `, [id, tenantId]);
+
+        if (osRes.rows.length === 0) return res.status(404).send('OS não encontrada.');
+        const os = osRes.rows[0];
+
+        const itemsRes = await query(
+            'SELECT * FROM service_order_items WHERE service_order_id = $1', 
+            [id]
+        );
+        const items = itemsRes.rows;
+
+        // Helper para formatar moeda BRL
+        const formatMoney = (value) => {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+        };
+
+        // 2. CSS DINÂMICO (@page e estilos)
+        let pageStyle = '';
+        let contentHtml = '';
+
+        if (mode === 'thermal') {
+            // --- MODO CUPOM TÉRMICO (80mm) ---
+            pageStyle = `
+                @page { size: 80mm auto; margin: 0; }
+                body { width: 72mm; padding: 4mm; font-family: 'Courier New', monospace; font-size: 11px; margin: 0 auto; }
+                .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
+                .title { font-size: 14px; font-weight: bold; }
+                .line { border-bottom: 1px dashed #000; margin: 5px 0; }
+                table { width: 100%; font-size: 11px; border-collapse: collapse; }
+                td { vertical-align: top; }
+                .right { text-align: right; }
+                .center { text-align: center; }
+                .total { font-size: 14px; font-weight: bold; text-align: right; margin-top: 5px; }
+            `;
+
+            contentHtml = `
+                <div class="header">
+                    <div class="title">${os.tenant_name}</div>
+                    <div>${os.tenant_phone || ''}</div>
+                    <br/>
+                    <strong>OS Nº ${String(os.id).padStart(6, '0')}</strong><br/>
+                    ${new Date(os.created_at).toLocaleString('pt-BR')}
+                </div>
+                
+                <div>
+                    <strong>CLI:</strong> ${os.client_name}<br/>
+                    <strong>EQP:</strong> ${os.equipment}
+                </div>
+
+                <div class="line"></div>
+
+                <table>
+                    <thead><tr><th align="left">Qtd Item</th><th align="right">Total</th></tr></thead>
+                    <tbody>
+                        ${items.map(i => `
+                            <tr>
+                                <td>${Number(i.quantity)}x ${i.description}</td>
+                                <td class="right">${formatMoney(i.subtotal)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <div class="line"></div>
+                <div class="total">TOTAL: ${formatMoney(os.total_amount)}</div>
+                
+                <div class="center" style="margin-top:15px; font-size:10px;">
+                    www.minierp.com.br
+                </div>
+            `;
+
+        } else if (mode === 'a5_landscape') {
+            // --- MODO A5 PAISAGEM (Meia Folha) ---
+            pageStyle = `
+                @page { size: A5 landscape; margin: 10mm; }
+                body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; }
+                .header-box { border: 1px solid #000; padding: 10px; display: flex; justify-content: space-between; margin-bottom: 8px; }
+                .box { border: 1px solid #000; padding: 5px; margin-bottom: 5px; }
+                .box-title { font-weight: bold; background: #eee; padding: 2px 5px; border-bottom: 1px solid #000; margin: -5px -5px 5px -5px; font-size: 10px; }
+                table { width: 100%; border-collapse: collapse; font-size: 11px; }
+                th, td { border: 1px solid #ccc; padding: 4px; text-align: left; }
+                th { background: #f0f0f0; }
+                .right { text-align: right; }
+                .total-big { font-size: 14px; font-weight: bold; text-align: right; margin-top: 5px; }
+            `;
+
+            contentHtml = `
+                <div class="header-box">
+                    <div>
+                        <div style="font-size:14px; font-weight:bold;">${os.tenant_name}</div>
+                        <div>${os.tenant_phone || ''} | ${os.email_contact || ''}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:16px; font-weight:bold;">OS Nº ${String(os.id).padStart(6, '0')}</div>
+                        <div>Data: ${new Date(os.created_at).toLocaleDateString('pt-BR')}</div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px;">
+                    <div class="box" style="flex:1">
+                        <div class="box-title">DADOS DO CLIENTE</div>
+                        <div><strong>Nome:</strong> ${os.client_name}</div>
+                        <div><strong>Tel:</strong> ${os.client_phone || '-'}</div>
+                    </div>
+                    <div class="box" style="flex:1">
+                        <div class="box-title">EQUIPAMENTO / SERVIÇO</div>
+                        <div><strong>Equip.:</strong> ${os.equipment}</div>
+                        <div><strong>Defeito:</strong> ${os.description}</div>
+                    </div>
+                </div>
+
+                <div class="box">
+                    <div class="box-title">ITENS E SERVIÇOS</div>
+                    <table>
+                        <thead>
+                            <tr><th>Descrição</th><th style="width:40px; text-align:center">Qtd</th><th style="width:70px" class="right">Unit.</th><th style="width:70px" class="right">Total</th></tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(i => `
+                                <tr>
+                                    <td>${i.description}</td>
+                                    <td style="text-align:center">${Number(i.quantity)}</td>
+                                    <td class="right">${formatMoney(i.unit_price)}</td>
+                                    <td class="right">${formatMoney(i.subtotal)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="total-big">
+                    TOTAL: ${formatMoney(os.total_amount)}
+                </div>
+
+                <div style="font-size:9px; margin-top:10px; border-top:1px solid #ccc; padding-top:2px;">
+                    ${os.os_warranty_terms || 'Garantia de 90 dias.'}
+                </div>
+                
+                <div style="display:flex; justify-content:space-between; margin-top:25px;">
+                    <div style="border-top:1px solid #000; width:40%; text-align:center; font-size:9px;">Assinatura Técnico</div>
+                    <div style="border-top:1px solid #000; width:40%; text-align:center; font-size:9px;">Assinatura Cliente</div>
+                </div>
+            `;
+
+        } else {
+            // --- MODO A4 PADRÃO ---
+            pageStyle = `
+                @page { size: A4; margin: 15mm; }
+                body { font-family: 'Helvetica', Arial, sans-serif; font-size: 12px; color: #000; margin: 0; }
+                .header-container { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; }
+                .company-info h1 { margin: 0; font-size: 20px; }
+                .os-number { font-size: 22px; font-weight: bold; color: #d32f2f; }
+                
+                .section-title { background: #eee; padding: 5px 10px; font-weight: bold; border-left: 5px solid #333; margin: 15px 0 5px 0; text-transform: uppercase; font-size: 11px; }
+                .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+                .field { margin-bottom: 4px; }
+                
+                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                th { background: #333; color: #fff; padding: 8px; text-align: left; font-size: 11px; }
+                td { border-bottom: 1px solid #eee; padding: 8px; }
+                .right { text-align: right; }
+                
+                .footer-total { margin-top: 20px; text-align: right; font-size: 16px; background: #f9f9f9; padding: 10px; border: 1px solid #ddd; font-weight: bold; }
+                .signatures { display: flex; justify-content: space-between; margin-top: 60px; }
+                .sig-box { width: 40%; border-top: 1px solid #000; text-align: center; padding-top: 5px; font-size: 11px; }
+            `;
+
+            contentHtml = `
+                <div class="header-container">
+                    <div class="company-info">
+                        <h1>${os.tenant_name}</h1>
+                        <div>CNPJ: ${os.tenant_doc || '-'}</div>
+                        <div>Tel: ${os.tenant_phone || ''}</div>
+                        <div>${os.email_contact || ''}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div class="os-number">OS #${String(os.id).padStart(6, '0')}</div>
+                        <div>Abertura: ${new Date(os.created_at).toLocaleDateString('pt-BR')}</div>
+                        <div>Status: <strong>${os.status === 'open' ? 'Aberta' : os.status === 'completed' ? 'Finalizada' : 'Em Andamento'}</strong></div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div>
+                        <div class="section-title">Dados do Cliente</div>
+                        <div class="field"><strong>Nome:</strong> ${os.client_name}</div>
+                        <div class="field"><strong>CPF/CNPJ:</strong> ${os.client_doc || '-'}</div>
+                        <div class="field"><strong>Telefone:</strong> ${os.client_phone || '-'}</div>
+                        <div class="field"><strong>Endereço:</strong> ${os.address || ''}, ${os.number || ''}</div>
+                        <div class="field"><strong>Cidade:</strong> ${os.city || ''} - ${os.state || ''}</div>
+                    </div>
+                    <div>
+                        <div class="section-title">Dados do Equipamento</div>
+                        <div class="field"><strong>Equipamento:</strong> ${os.equipment}</div>
+                        <div class="field"><strong>Prioridade:</strong> ${os.priority === 'high' ? 'Alta' : 'Normal'}</div>
+                        <div class="field">
+                            <strong>Descrição do Defeito / Serviço:</strong><br/>
+                            ${os.description}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title" style="margin-top:20px;">Itens, Peças e Serviços</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Descrição</th>
+                            <th style="width: 60px; text-align: center;">Qtd</th>
+                            <th style="width: 100px;" class="right">Vlr. Unit.</th>
+                            <th style="width: 100px;" class="right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                         ${items.map(i => `
+                            <tr>
+                                <td>${i.description}</td>
+                                <td style="text-align: center;">${Number(i.quantity)}</td>
+                                <td class="right">${formatMoney(i.unit_price)}</td>
+                                <td class="right">${formatMoney(i.subtotal)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <div class="footer-total">
+                    Total Geral: ${formatMoney(os.total_amount)}
+                </div>
+
+                ${os.os_observation_message ? `
+                    <div class="section-title">Observações Técnicas</div>
+                    <div style="padding:5px; font-size:12px;">${os.os_observation_message}</div>
+                ` : ''}
+
+                <div style="margin-top: 30px; font-size: 11px; text-align: justify; color: #555;">
+                    <strong>Termos e Condições:</strong><br/>
+                    ${os.os_warranty_terms || 'Garantia de 90 dias para mão de obra e peças substituídas.'}
+                </div>
+
+                <div class="signatures">
+                    <div class="sig-box">Assinatura do Técnico</div>
+                    <div class="sig-box">Assinatura do Cliente</div>
+                </div>
+            `;
+        }
+
+        // 3. Montagem Final (HTML + Charset UTF-8)
+        const finalHtml = `
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Impressão OS #${os.id}</title>
+                <style>
+                    * { box-sizing: border-box; }
+                    /* Garante impressão correta de fundos coloridos */
+                    @media print {
+                        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    }
+                    ${pageStyle}
+                </style>
+            </head>
+            <body>
+                ${contentHtml}
+                <script>
+                    window.onload = function() { window.print(); }
+                </script>
+            </body>
+            </html>
+        `;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(finalHtml);
+
+    } catch (error) {
+        console.error('Erro ao imprimir:', error);
+        res.status(500).send('Erro ao gerar impressão.');
+    }
+};
+
 // --- HELPER ---
 async function recalculateOSTotals(orderId) {
     const prodSum = await query(
@@ -387,13 +685,13 @@ async function recalculateOSTotals(orderId) {
     );
 }
 
-// Aliases para compatibilidade de rotas
+// Aliases
 const listServiceOrders = listOrders;
 const createServiceOrder = createOrder;
-const getServiceOrderById = getOrderDetails; // Alias crucial para a rota /:id
+const getServiceOrderById = getOrderDetails;
 const updateServiceOrder = updateOrder;
 const updateOSStatus = updateStatus;
-const deleteServiceOrder = async (req, res) => { /* Implementar se precisar */ };
+const deleteServiceOrder = async (req, res) => { /* ... */ };
 
 module.exports = { 
     listOrders, 
@@ -403,7 +701,7 @@ module.exports = {
     addItem, 
     removeItem, 
     updateStatus,
-    // Exports com nomes alternativos para garantir que as rotas antigas funcionem
+    print: printOrder,
     listServiceOrders,
     createServiceOrder,
     getServiceOrderById,

@@ -6,8 +6,8 @@ import Modal from '../../components/ui/Modal';
 import { ToastContext } from '../../context/ToastContext';
 import styles from './ServiceOrderDetails.module.css';
 import { 
-    ArrowLeft, Printer, Plus, Trash2, Check, AlertTriangle, 
-    Edit, FileText, Scroll, Play, Pause, RefreshCw, CreditCard 
+    ArrowLeft, Plus, Trash2, Check, 
+    Edit, FileText, Scroll, Play, Pause, RefreshCw 
 } from 'lucide-react';
 
 export default function ServiceOrderDetails() {
@@ -167,9 +167,39 @@ export default function ServiceOrderDetails() {
     };
 
     // --- CORREÇÃO DE IMPRESSÃO ---
-    // Usa navigate() para evitar perda de sessão (não abre nova aba)
-    const handlePrint = (mode) => {
-        navigate(`/dashboard/print-os/${id}?mode=${mode}`);
+    // Agora baixa o arquivo via API autenticada e abre o Blob
+    const handlePrint = async (mode) => {
+        try {
+            addToast({ type: 'info', title: 'Gerando...', message: 'Preparando impressão...' });
+
+            // Faz a requisição enviando o token automaticamente (via interceptor do axios)
+            const response = await api.get(`/service-orders/${id}/print?mode=${mode}`, { 
+                responseType: 'blob' 
+            });
+
+            // Cria URL temporária para o arquivo
+            const file = new Blob([response.data], { type: 'text/html' }); // Assumindo HTML, se for PDF mude para application/pdf
+            const fileURL = URL.createObjectURL(file);
+
+            // Abre em nova aba
+            const printWindow = window.open(fileURL, '_blank');
+            
+            // Tenta imprimir automaticamente ao carregar
+            if (printWindow) {
+                printWindow.onload = () => {
+                    printWindow.print();
+                    // Opcional: URL.revokeObjectURL(fileURL); // Limpa memória após uso
+                };
+            }
+
+        } catch (error) {
+            console.error(error);
+            addToast({ 
+                type: 'error', 
+                title: 'Erro', 
+                message: 'Não foi possível gerar a impressão. Verifique pop-ups.' 
+            });
+        }
     };
 
     if (loading) return <DashboardLayout><div style={{padding:'2rem'}}>Carregando OS...</div></DashboardLayout>;
@@ -249,7 +279,7 @@ export default function ServiceOrderDetails() {
                 <div className={styles.leftCol}>
                     <div className={styles.card}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <h3>OS #{String(os.id).padStart(6, '0')}</h3>
+                            <h3>OS #{String(os.ticket_number || os.id).padStart(6, '0')}</h3>
                             <span className={`${styles.badge} ${styles[os.status]}`}>
                                 {getStatusLabel(os.status)}
                             </span>

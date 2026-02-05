@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import DashboardLayout from '../../components/layout/DashboardLayout';
 import { ToastContext } from '../../context/ToastContext';
-import styles from './ServiceOrderDetails.module.css'; // Reutilizando CSS
-import { ArrowLeft, Save, Printer, CheckCircle, Plus, Trash2, ShoppingCart, Wrench } from 'lucide-react';
+import styles from './ServiceOrderDetails.module.css'; // Usando o mesmo CSS das OS para manter padrão
+import { ArrowLeft, Save, Printer, ShoppingCart, Wrench, Trash2, FileText, Scroll } from 'lucide-react';
 
 export default function QuoteDetails() {
     const { id } = useParams(); // Se for 'new', é criação
@@ -41,8 +41,12 @@ export default function QuoteDetails() {
             const res = await api.get(`/quotes/${id}`);
             setQuote(res.data.quote);
             setItems(res.data.items);
-        } catch(e){ navigate('/dashboard/quotes'); } 
-        finally { setLoading(false); }
+        } catch(e){ 
+            console.error(e);
+            navigate('/dashboard/quotes'); 
+        } finally { 
+            setLoading(false); 
+        }
     }
 
     // --- AÇÕES ---
@@ -51,59 +55,112 @@ export default function QuoteDetails() {
             const payload = { ...quote, items };
             if (isNew) {
                 const res = await api.post('/quotes', payload);
-                addToast({type:'success', title:'Criado!'});
+                addToast({type:'success', title:'Criado!', message: 'Orçamento salvo com sucesso.'});
                 navigate(`/dashboard/quotes/${res.data.id}`);
             } else {
-                // Implementar update se necessário, por enquanto foca em criar/converter
-                addToast({type:'info', title:'Edição não implementada nesta versão rápida.'});
+                addToast({type:'info', title:'Aviso', message: 'Edição não implementada nesta versão rápida.'});
             }
-        } catch(e) { addToast({type:'error', title:'Erro ao salvar'}); }
+        } catch(e) { 
+            addToast({type:'error', title:'Erro ao salvar', message: e.response?.data?.message || 'Erro desconhecido'}); 
+        }
     };
 
     const handleConvert = async (target) => {
         if(!confirm(`Deseja converter este orçamento em ${target === 'sale' ? 'Venda' : 'OS'}?`)) return;
         try {
             const res = await api.post(`/quotes/${id}/convert`, { target });
-            addToast({type:'success', title:'Convertido com sucesso!'});
+            addToast({type:'success', title:'Convertido!', message: 'Registro gerado com sucesso.'});
+            
             // Redireciona para o novo registro
-            const path = target === 'sale' ? '/dashboard/sales' : `/dashboard/service-orders/${res.data.newId}`;
-            navigate(path);
-        } catch(e) { addToast({type:'error', title:'Erro ao converter'}); }
+            if (target === 'sale') {
+                navigate('/dashboard/sales'); // Poderia ir para detalhes se tivesse a rota
+            } else {
+                navigate(`/dashboard/service-orders/${res.data.newId}`);
+            }
+        } catch(e) { 
+            addToast({type:'error', title:'Erro ao converter', message: e.response?.data?.message || 'Erro.'}); 
+        }
+    };
+
+    // --- IMPRESSÃO CORRIGIDA (Backend PDF/HTML) ---
+    const handlePrint = async (mode) => {
+        try {
+            addToast({ type: 'info', title: 'Gerando...', message: 'Preparando impressão.' });
+
+            // Chama a rota que criamos no backend
+            const response = await api.get(`/quotes/${id}/print?mode=${mode}`, { 
+                responseType: 'blob' 
+            });
+
+            // Cria URL temporária e abre
+            const file = new Blob([response.data], { type: 'text/html' });
+            const fileURL = URL.createObjectURL(file);
+            const printWindow = window.open(fileURL, '_blank');
+
+            if (printWindow) {
+                printWindow.onload = () => printWindow.print();
+            }
+        } catch (error) {
+            console.error(error);
+            addToast({ type: 'error', title: 'Erro', message: 'Falha ao gerar impressão. Verifique pop-ups.' });
+        }
     };
 
     // --- MANIPULAÇÃO DE ITENS ---
     const addItem = (e) => {
         e.preventDefault();
-        if (!newItem.description) return;
-        setItems([...items, { ...newItem, subtotal: newItem.quantity * newItem.unit_price }]);
+        if (!newItem.description || newItem.quantity <= 0) return;
+        
+        const subtotal = Number(newItem.quantity) * Number(newItem.unit_price);
+        setItems([...items, { ...newItem, subtotal }]);
+        
         setNewItem({ product_id: '', description: '', quantity: 1, unit_price: 0 });
     };
 
     const handleProductSelect = (pid) => {
         const p = products.find(x => x.id === Number(pid));
-        if (p) setNewItem({ ...newItem, product_id: pid, description: p.name, unit_price: Number(p.sale_price) });
+        if (p) {
+            setNewItem({ ...newItem, product_id: pid, description: p.name, unit_price: Number(p.sale_price) });
+        } else {
+            setNewItem({ ...newItem, product_id: '', description: '', unit_price: 0 });
+        }
     };
 
-    if (loading) return <DashboardLayout><p>Carregando...</p></DashboardLayout>;
+    if (loading) return <DashboardLayout><div style={{padding:'20px'}}>Carregando...</div></DashboardLayout>;
 
-    const total = items.reduce((acc, i) => acc + Number(i.subtotal), 0) - Number(quote.discount || 0);
+    const subtotalItems = items.reduce((acc, i) => acc + Number(i.subtotal), 0);
+    const total = subtotalItems - Number(quote.discount || 0);
 
     return (
         <DashboardLayout>
             <div className={styles.header}>
-                <button onClick={() => navigate('/dashboard/quotes')} className={styles.backBtn}><ArrowLeft size={16} /> Voltar</button>
-                <div style={{display:'flex', gap:10}}>
+                <button onClick={() => navigate('/dashboard/quotes')} className={styles.backBtn}>
+                    <ArrowLeft size={16} /> Voltar
+                </button>
+                
+                <div style={{display:'flex', gap:10, alignItems: 'center'}}>
                     {isNew ? (
-                        <button onClick={handleSave} className={styles.btnFinish}><Save size={16}/> Salvar Orçamento</button>
+                        <button onClick={handleSave} className={styles.btnFinish}>
+                            <Save size={16}/> Salvar Orçamento
+                        </button>
                     ) : (
                         <>
-                            <button onClick={() => window.print()} className={styles.btnPrint}><Printer size={16}/> Imprimir</button>
-                            {quote.status !== 'converted' && (
+                            {/* GRUPO DE IMPRESSÃO */}
+                            <div className={styles.printGroup} style={{marginRight: '10px', display: 'flex', gap: '5px'}}>
+                                <button onClick={() => handlePrint('a4')} className={styles.btnPrint} title="Imprimir A4">
+                                    <FileText size={16}/> A4
+                                </button>
+                                <button onClick={() => handlePrint('thermal')} className={styles.btnPrint} title="Imprimir Cupom">
+                                    <Scroll size={16}/> Cupom
+                                </button>
+                            </div>
+
+                            {quote.status !== 'converted' && quote.status !== 'approved' && (
                                 <>
-                                    <button onClick={() => handleConvert('sale')} className={styles.btnAction} style={{background:'#10b981'}}>
+                                    <button onClick={() => handleConvert('sale')} className={styles.btnAction} style={{background:'#10b981', border:'none', color:'white', padding:'8px 12px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px'}}>
                                         <ShoppingCart size={16}/> Virar Venda
                                     </button>
-                                    <button onClick={() => handleConvert('service_order')} className={styles.btnAction} style={{background:'#3b82f6'}}>
+                                    <button onClick={() => handleConvert('service_order')} className={styles.btnAction} style={{background:'#3b82f6', border:'none', color:'white', padding:'8px 12px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px'}}>
                                         <Wrench size={16}/> Virar OS
                                     </button>
                                 </>
@@ -117,30 +174,41 @@ export default function QuoteDetails() {
                 {/* COLUNA ESQUERDA: DADOS */}
                 <div className={styles.leftCol}>
                     <div className={styles.card}>
-                        <h3>Dados do Cliente</h3>
+                        <h3>Dados do Orçamento</h3>
+                        
                         <div style={{marginBottom:10}}>
                             <label className={styles.inputLabel}>Cliente</label>
-                            <select className={styles.input} value={quote.client_id} onChange={e => {
+                            <select className={styles.input} value={quote.client_id || ''} onChange={e => {
                                 const c = clients.find(x=>x.id==e.target.value);
                                 setQuote({...quote, client_id: e.target.value, client_name: c ? c.name : ''});
                             }} disabled={!isNew}>
-                                <option value="">-- Selecione --</option>
+                                <option value="">-- Selecione um Cliente --</option>
                                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                         </div>
+
+                        {/* Se não selecionou cliente cadastrado, permite digitar nome avulso */}
                         {!quote.client_id && (
                             <div style={{marginBottom:10}}>
-                                <label className={styles.inputLabel}>Nome (Avulso)</label>
-                                <input className={styles.input} value={quote.client_name} onChange={e=>setQuote({...quote, client_name:e.target.value})} disabled={!isNew}/>
+                                <label className={styles.inputLabel}>Nome do Cliente (Avulso)</label>
+                                <input className={styles.input} value={quote.client_name || ''} onChange={e=>setQuote({...quote, client_name:e.target.value})} disabled={!isNew} placeholder="Digite o nome..."/>
                             </div>
                         )}
-                        <div style={{marginBottom:10}}>
-                            <label className={styles.inputLabel}>Validade</label>
-                            <input type="date" className={styles.input} value={quote.valid_until ? quote.valid_until.split('T')[0] : ''} onChange={e=>setQuote({...quote, valid_until:e.target.value})} disabled={!isNew}/>
+
+                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: 10}}>
+                            <div>
+                                <label className={styles.inputLabel}>Validade</label>
+                                <input type="date" className={styles.input} value={quote.valid_until ? quote.valid_until.split('T')[0] : ''} onChange={e=>setQuote({...quote, valid_until:e.target.value})} disabled={!isNew}/>
+                            </div>
+                            <div>
+                                <label className={styles.inputLabel}>Desconto (R$)</label>
+                                <input type="number" step="0.01" className={styles.input} value={quote.discount} onChange={e=>setQuote({...quote, discount:e.target.value})} disabled={!isNew}/>
+                            </div>
                         </div>
+
                         <div>
                             <label className={styles.inputLabel}>Observações</label>
-                            <textarea className={styles.input} value={quote.notes} onChange={e=>setQuote({...quote, notes:e.target.value})} disabled={!isNew}/>
+                            <textarea className={styles.input} rows={3} value={quote.notes || ''} onChange={e=>setQuote({...quote, notes:e.target.value})} disabled={!isNew} placeholder="Detalhes adicionais..."/>
                         </div>
                     </div>
 
@@ -150,18 +218,20 @@ export default function QuoteDetails() {
                             <form onSubmit={addItem} style={{marginTop:10}}>
                                 <div style={{marginBottom:10}}>
                                     <select className={styles.input} value={newItem.product_id} onChange={e=>handleProductSelect(e.target.value)}>
-                                        <option value="">-- Produto (Opcional) --</option>
+                                        <option value="">-- Buscar Produto (Opcional) --</option>
                                         {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                 </div>
                                 <div style={{marginBottom:10}}>
-                                    <input className={styles.input} placeholder="Descrição" value={newItem.description} onChange={e=>setNewItem({...newItem, description:e.target.value})} required/>
+                                    <input className={styles.input} placeholder="Descrição do Item/Serviço" value={newItem.description} onChange={e=>setNewItem({...newItem, description:e.target.value})} required/>
                                 </div>
                                 <div style={{display:'flex', gap:10}}>
-                                    <input type="number" className={styles.input} placeholder="Qtd" value={newItem.quantity} onChange={e=>setNewItem({...newItem, quantity:e.target.value})}/>
-                                    <input type="number" className={styles.input} placeholder="Preço" value={newItem.unit_price} onChange={e=>setNewItem({...newItem, unit_price:e.target.value})}/>
+                                    <input type="number" className={styles.input} placeholder="Qtd" value={newItem.quantity} onChange={e=>setNewItem({...newItem, quantity:e.target.value})} required min="1"/>
+                                    <input type="number" step="0.01" className={styles.input} placeholder="Preço Unit." value={newItem.unit_price} onChange={e=>setNewItem({...newItem, unit_price:e.target.value})} required/>
                                 </div>
-                                <button className={styles.btnAdd}>+ Adicionar</button>
+                                <button type="submit" className={styles.btnAdd} style={{width: '100%', marginTop: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px'}}>
+                                    <Plus size={16}/> Adicionar Item
+                                </button>
                             </form>
                         </div>
                     )}
@@ -170,22 +240,45 @@ export default function QuoteDetails() {
                 {/* COLUNA DIREITA: ITENS */}
                 <div className={styles.rightCol}>
                     <div className={styles.card}>
-                        <h3>Itens do Orçamento</h3>
-                        <table className={styles.itemTable}>
-                            <thead><tr><th>Item</th><th>Qtd</th><th>Total</th><th></th></tr></thead>
-                            <tbody>
-                                {items.map((it, idx) => (
-                                    <tr key={idx}>
-                                        <td>{it.description}</td>
-                                        <td>{it.quantity}</td>
-                                        <td>R$ {Number(it.subtotal).toFixed(2)}</td>
-                                        <td>{isNew && <button onClick={()=>setItems(items.filter((_,i)=>i!==idx))} className={styles.btnTrash}><Trash2 size={14}/></button>}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        <div className={styles.totalBox}>
-                            <span>Total:</span> <h2>R$ {total.toFixed(2)}</h2>
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                            <h3>Itens do Orçamento</h3>
+                            <span style={{fontSize:'0.8em', color:'#666'}}>{items.length} itens</span>
+                        </div>
+                        
+                        <div className={styles.tableWrapper}>
+                            <table className={styles.itemTable}>
+                                <thead><tr><th>Descrição</th><th style={{textAlign:'center'}}>Qtd</th><th style={{textAlign:'right'}}>Total</th><th></th></tr></thead>
+                                <tbody>
+                                    {items.length === 0 && <tr><td colSpan="4" style={{textAlign:'center', color:'#999', padding:'20px'}}>Nenhum item adicionado.</td></tr>}
+                                    {items.map((it, idx) => (
+                                        <tr key={idx}>
+                                            <td>
+                                                <div style={{fontWeight:'500'}}>{it.description}</div>
+                                                <div style={{fontSize:'0.8em', color:'#666'}}>Unit: R$ {Number(it.unit_price).toFixed(2)}</div>
+                                            </td>
+                                            <td style={{textAlign:'center'}}>{it.quantity}</td>
+                                            <td style={{textAlign:'right', fontWeight:'bold'}}>R$ {Number(it.subtotal).toFixed(2)}</td>
+                                            <td style={{textAlign:'center'}}>
+                                                {isNew && (
+                                                    <button onClick={()=>setItems(items.filter((_,i)=>i!==idx))} className={styles.btnTrash} style={{color:'#ef4444', background:'none', border:'none', cursor:'pointer'}}>
+                                                        <Trash2 size={16}/>
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className={styles.divider}></div>
+
+                        <div style={{textAlign:'right'}}>
+                            <div style={{color:'#666', marginBottom:'5px'}}>Subtotal: R$ {subtotalItems.toFixed(2)}</div>
+                            <div style={{color:'#dc2626', marginBottom:'5px'}}>Desconto: - R$ {Number(quote.discount || 0).toFixed(2)}</div>
+                            <div className={styles.totalBox} style={{justifyContent: 'flex-end'}}>
+                                <span>Total:</span> <h2>R$ {total.toFixed(2)}</h2>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -5,6 +5,10 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 router.use(authMiddleware);
 
+// --- ROTA DE IMPRESSÃO (NOVA) ---
+router.get('/:id/print', quoteController.print);
+
+// Rotas Padrão (Mantendo as suas originais)
 router.get('/', quoteController.listQuotes);
 router.post('/', quoteController.createQuote);
 router.get('/:id', quoteController.getQuoteDetails);
