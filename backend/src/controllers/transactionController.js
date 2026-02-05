@@ -18,11 +18,12 @@ const listTransactions = async (req, res) => {
         let sql = `
             SELECT t.id, t.description, t.amount, t.type, t.cost_type, t.status, t.date, t.attachment_path,
                    c.name as category_name, cl.name as client_name, s.name as supplier_name,
-                   t.installment_index, t.installments_total
+                   u.name as creator_name, t.installment_index, t.installments_total
             FROM transactions t
             LEFT JOIN categories c ON t.category_id = c.id
             LEFT JOIN clients cl ON t.client_id = cl.id
             LEFT JOIN suppliers s ON t.supplier_id = s.id
+            LEFT JOIN users u ON t.created_by = u.id
             WHERE t.tenant_id = $1
         `;
         const params = [tenantId];
@@ -86,7 +87,7 @@ const getSummary = async (req, res) => {
         `;
 
         const result = await query(sql, params);
-        const data = result.rows[0];
+        const data = result.rows[0] || { income_received: 0, income_pending: 0, expense_paid: 0, expense_pending: 0 };
 
         const balance = Number(data.income_received) - Number(data.expense_paid);
         const expected_balance = (Number(data.income_received) + Number(data.income_pending)) - (Number(data.expense_paid) + Number(data.expense_pending));
@@ -94,6 +95,7 @@ const getSummary = async (req, res) => {
         return res.json({ ...data, balance, expected_balance });
 
     } catch (error) {
+        console.error('Erro no resumo:', error);
         return res.status(500).json({ message: 'Erro ao calcular resumo.' });
     }
 };
@@ -121,15 +123,19 @@ const createTransaction = async (req, res) => {
         let finalCategoryId = category_id;
         
         if (!finalCategoryId && use_ai_category) {
-            const categoryName = await geminiService.categorizeTransaction(description);
-            // Verifica se categoria existe pelo nome
-            const catCheck = await query('SELECT id FROM categories WHERE tenant_id = $1 AND name = $2', [tenantId, categoryName]);
-            
-            if (catCheck.rows.length > 0) {
-                finalCategoryId = catCheck.rows[0].id;
-            } else {
-                const newCat = await query('INSERT INTO categories (tenant_id, name, type) VALUES ($1, $2, $3) RETURNING id', [tenantId, categoryName, type]);
-                finalCategoryId = newCat.rows[0].id;
+            try {
+                const categoryName = await geminiService.categorizeTransaction(description);
+                // Verifica se categoria existe pelo nome
+                const catCheck = await query('SELECT id FROM categories WHERE tenant_id = $1 AND name ILIKE $2', [tenantId, categoryName]);
+                
+                if (catCheck.rows.length > 0) {
+                    finalCategoryId = catCheck.rows[0].id;
+                } else {
+                    const newCat = await query('INSERT INTO categories (tenant_id, name, type) VALUES ($1, $2, $3) RETURNING id', [tenantId, categoryName, type]);
+                    finalCategoryId = newCat.rows[0].id;
+                }
+            } catch (err) {
+                console.warn("Falha na IA, prosseguindo sem categoria.", err);
             }
         }
 
@@ -145,8 +151,6 @@ const createTransaction = async (req, res) => {
         for (let i = 0; i < numInstallments; i++) {
             // Se for a última parcela, soma o resto dos centavos
             let val = i === numInstallments - 1 ? (installmentValue + remainder) : installmentValue;
-            
-            // Garante 2 casas decimais
             val = Number(val.toFixed(2));
 
             const dueDate = new Date(date);
@@ -188,7 +192,7 @@ const createTransaction = async (req, res) => {
 };
 
 // ==========================================
-// 4. ATUALIZAR STATUS (DAR BAIXA)
+// 4. ATUALIZAR STATUS E EDITAR
 // ==========================================
 const updateTransactionStatus = async (req, res) => {
     try {
@@ -201,10 +205,9 @@ const updateTransactionStatus = async (req, res) => {
              return res.status(400).json({ message: 'Status inválido.' });
         }
 
-        // CORREÇÃO: Removido "updated_at = NOW()" pois a coluna não existe no banco
         const result = await query(
             `UPDATE transactions 
-             SET status = $1
+             SET status = $1, updated_at = NOW()
              WHERE id = $2 AND tenant_id = $3 
              RETURNING *`,
             [status, id, tenantId]
@@ -214,21 +217,32 @@ const updateTransactionStatus = async (req, res) => {
             return res.status(404).json({ message: 'Transação não encontrada.' });
         }
 
-        // --- AUDITORIA ---
-        await auditService.logAction(
-            tenantId, 
-            userId, 
-            'UPDATE', 
-            'TRANSACTION', 
-            id, 
-            `Alterou status para: ${status}`
-        );
+        await auditService.logAction(tenantId, userId, 'UPDATE', 'TRANSACTION', id, `Alterou status para: ${status}`);
 
         return res.json(result.rows[0]);
 
     } catch (error) {
         console.error('Erro ao atualizar status:', error);
         return res.status(500).json({ message: 'Erro ao atualizar transação.' });
+    }
+};
+
+const updateTransaction = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const { id } = req.params;
+        const { description, amount, type, category_id, date, status, client_id, supplier_id } = req.body;
+
+        await query(
+            `UPDATE transactions 
+             SET description=$1, amount=$2, type=$3, category_id=$4, date=$5, status=$6, client_id=$7, supplier_id=$8, updated_at=NOW()
+             WHERE id=$9 AND tenant_id=$10`,
+            [description, amount, type, category_id || null, date, status, client_id || null, supplier_id || null, id, tenantId]
+        );
+
+        return res.json({ message: 'Transação atualizada.' });
+    } catch (error) {
+        return res.status(500).json({ message: 'Erro ao atualizar.' });
     }
 };
 
@@ -254,15 +268,7 @@ const deleteTransaction = async (req, res) => {
 
         await query('DELETE FROM transactions WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
 
-        // --- AUDITORIA ---
-        await auditService.logAction(
-            tenantId, 
-            userId, 
-            'DELETE', 
-            'TRANSACTION', 
-            id, 
-            `Apagou transação: ${oldData.description} (R$ ${oldData.amount})`
-        );
+        await auditService.logAction(tenantId, userId, 'DELETE', 'TRANSACTION', id, `Apagou: ${oldData.description}`);
 
         return res.json({ message: 'Transação removida com sucesso.' });
 
@@ -312,7 +318,7 @@ const getDashboardSummary = async (req, res) => {
 };
 
 // ==========================================
-// 7. TRANSAÇÕES RECENTES (Mantido)
+// 7. TRANSAÇÕES RECENTES
 // ==========================================
 const getRecentTransactions = async (req, res) => {
     try {
@@ -331,13 +337,12 @@ const getRecentTransactions = async (req, res) => {
         return res.json(result.rows);
 
     } catch (error) {
-        console.error('Erro recent transactions:', error);
         return res.status(500).json({ message: 'Erro ao buscar recentes.' });
     }
 };
 
 // ==========================================
-// 8. ESTATÍSTICAS POR CATEGORIA (Mantido)
+// 8. ESTATÍSTICAS POR CATEGORIA
 // ==========================================
 const getCategoryStats = async (req, res) => {
     try {
@@ -364,13 +369,12 @@ const getCategoryStats = async (req, res) => {
         return res.json(formatted);
 
     } catch (error) {
-        console.error('Erro category stats:', error);
         return res.status(500).json({ message: 'Erro ao buscar categorias.' });
     }
 };
 
 // ==========================================
-// 9. RELATÓRIO IA (Mantido)
+// 9. RELATÓRIO IA
 // ==========================================
 const getAiReport = async (req, res) => {
     try {
@@ -397,7 +401,7 @@ const getAiReport = async (req, res) => {
 };
 
 // ==========================================
-// 10. DADOS PARA O GRÁFICO (Mantido)
+// 10. DADOS PARA O GRÁFICO
 // ==========================================
 const getChartData = async (req, res) => {
     try {
@@ -426,8 +430,20 @@ const getChartData = async (req, res) => {
         return res.json(formatted);
 
     } catch (error) {
-        console.error('Erro no gráfico:', error);
         return res.status(500).json({ message: 'Erro ao gerar dados do gráfico.' });
+    }
+};
+
+const getTransactionById = async (req, res) => {
+    try {
+        const tenantId = req.user.tenantId;
+        const { id } = req.params;
+        const result = await query('SELECT * FROM transactions WHERE id=$1 AND tenant_id=$2', [id, tenantId]);
+        
+        if (result.rows.length === 0) return res.status(404).json({ message: 'Não encontrado.' });
+        return res.json(result.rows[0]);
+    } catch (error) {
+        return res.status(500).json({ message: 'Erro ao buscar.' });
     }
 };
 
@@ -436,11 +452,13 @@ module.exports = {
     getSummary,
     createTransaction,
     updateTransactionStatus,
-    updateStatus: updateTransactionStatus, // Alias
+    updateStatus: updateTransactionStatus,
+    updateTransaction,
     deleteTransaction,
     getDashboardSummary,
     getRecentTransactions,
     getCategoryStats,
     getAiReport,
-    getChartData
+    getChartData,
+    getTransactionById
 };

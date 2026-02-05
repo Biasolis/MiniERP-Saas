@@ -1,15 +1,16 @@
 -- ====================================================================
--- MINI ERP - INIT.SQL (CONSOLIDADO E CORRIGIDO - FEV/2026)
+-- MINI ERP - INIT.SQL (VERSÃO FINAL CONSOLIDADA - FEV/2026)
 -- ====================================================================
 
--- 1. EXTENSÕES
+-- 1. EXTENSÕES OBRIGATÓRIAS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==========================================
--- 2. CORE (Tenants, Users, Plans)
+-- 2. ESTRUTURA CORE (Empresas, Usuários, Planos)
 -- ==========================================
 
+-- Tabela de Planos
 CREATE TABLE IF NOT EXISTS plans (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL,
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS plans (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Tabela de Tenants (Empresas)
 CREATE TABLE IF NOT EXISTS tenants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
@@ -34,11 +36,12 @@ CREATE TABLE IF NOT EXISTS tenants (
     max_users INTEGER DEFAULT 5,
     ai_usage_limit INTEGER DEFAULT 100,
     ai_usage_current INTEGER DEFAULT 0,
-    document VARCHAR(50),
+    document VARCHAR(50), -- CNPJ/CPF
     phone VARCHAR(50),
     email_contact VARCHAR(100),
     address VARCHAR(255),
     website VARCHAR(255),
+    -- Configurações de Impressão e Garantia
     footer_message TEXT DEFAULT 'Obrigado pela preferência!',
     os_observation_message TEXT DEFAULT '',
     os_warranty_terms TEXT DEFAULT 'Garantia de 90 dias.',
@@ -48,13 +51,14 @@ CREATE TABLE IF NOT EXISTS tenants (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tabela de Usuários
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) DEFAULT 'admin' CHECK (role IN ('super_admin', 'admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte', 'agent')),
+    role VARCHAR(50) DEFAULT 'admin',
     is_super_admin BOOLEAN DEFAULT FALSE,
     avatar_path TEXT,
     reset_token TEXT,
@@ -67,9 +71,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- ==========================================
--- 3. CADASTROS BÁSICOS (IDs Inteiros)
+-- 3. CADASTROS BÁSICOS (IDs Sequenciais/Inteiros)
 -- ==========================================
 
+-- Categorias Financeiras
 CREATE TABLE IF NOT EXISTS categories (
     id SERIAL PRIMARY KEY,
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -79,17 +84,19 @@ CREATE TABLE IF NOT EXISTS categories (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Clientes
 CREATE TABLE IF NOT EXISTS clients (
     id SERIAL PRIMARY KEY,
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
-    code VARCHAR(50),
+    code VARCHAR(50), -- Código interno
     email VARCHAR(255),
     phone VARCHAR(50),
     document VARCHAR(50),
     type VARCHAR(20) DEFAULT 'client',
     status VARCHAR(20) DEFAULT 'lead',
     source VARCHAR(50),
+    -- Endereço
     zip_code VARCHAR(10),
     address VARCHAR(255),
     street VARCHAR(150),
@@ -102,6 +109,7 @@ CREATE TABLE IF NOT EXISTS clients (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Fornecedores
 CREATE TABLE IF NOT EXISTS suppliers (
     id SERIAL PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -114,16 +122,17 @@ CREATE TABLE IF NOT EXISTS suppliers (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Produtos e Serviços
 CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     sku VARCHAR(50),
-    barcode VARCHAR(100),
+    barcode VARCHAR(100), -- EAN/Código de Barras
     category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-    category VARCHAR(100),
-    type VARCHAR(20) DEFAULT 'product',
+    category VARCHAR(100), -- Compatibilidade legado
+    type VARCHAR(20) DEFAULT 'product', -- product, service
     sale_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
     cost_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
     stock INTEGER NOT NULL DEFAULT 0,
@@ -138,6 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 -- 4. FINANCEIRO E OPERACIONAL
 -- ==========================================
 
+-- Transações Financeiras
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -158,6 +168,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Transações Recorrentes
 CREATE TABLE IF NOT EXISTS recurring_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -173,22 +184,28 @@ CREATE TABLE IF NOT EXISTS recurring_transactions (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- ==========================================
+-- 5. ORDENS DE SERVIÇO (OS)
+-- ==========================================
+
 CREATE TABLE IF NOT EXISTS service_orders (
-    id SERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY, -- Número sequencial amigável
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
     client_id INTEGER REFERENCES clients(id),
     transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL,
     technician_id UUID REFERENCES users(id),
-    client_name VARCHAR(255),
+    client_name VARCHAR(255), -- Snapshot do nome
     equipment VARCHAR(255) NOT NULL,
     description TEXT,
     status VARCHAR(50) DEFAULT 'open',
     priority VARCHAR(20) DEFAULT 'normal',
     notes TEXT,
+    -- Totais Financeiros da OS
     total_parts DECIMAL(10,2) DEFAULT 0.00,
     total_services DECIMAL(10,2) DEFAULT 0.00,
     discount DECIMAL(10, 2) DEFAULT 0.00,
     total_amount NUMERIC(10, 2) DEFAULT 0.00,
+    -- Campos Específicos
     identifier VARCHAR(50), 
     mileage VARCHAR(50),
     brand VARCHAR(100),
@@ -210,9 +227,10 @@ CREATE TABLE IF NOT EXISTS service_order_items (
 );
 
 -- ==========================================
--- 5. VENDAS, ESTOQUE E PDV
+-- 6. VENDAS, PDV E ORÇAMENTOS
 -- ==========================================
 
+-- Sessão de Caixa (PDV)
 CREATE TABLE IF NOT EXISTS pos_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -229,13 +247,14 @@ CREATE TABLE IF NOT EXISTS pos_movements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
     session_id UUID REFERENCES pos_sessions(id) ON DELETE CASCADE,
-    type VARCHAR(20) NOT NULL,
+    type VARCHAR(20) NOT NULL, -- supply (suprimento), bleed (sangria)
     amount DECIMAL(10, 2) NOT NULL,
     reason VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
     created_by UUID REFERENCES users(id)
 );
 
+-- Vendas
 CREATE TABLE IF NOT EXISTS sales (
     id SERIAL PRIMARY KEY,
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -262,37 +281,62 @@ CREATE TABLE IF NOT EXISTS sale_items (
     commission_amount DECIMAL(10,2) DEFAULT 0
 );
 
+-- Orçamentos (Quotes)
 CREATE TABLE IF NOT EXISTS quotes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     client_id INTEGER REFERENCES clients(id),
-    status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'approved', 'rejected')),
+    client_name VARCHAR(255), -- Para clientes avulsos ou snapshot
+    status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'approved', 'rejected', 'converted')),
     total_amount NUMERIC(10,2) DEFAULT 0,
+    discount NUMERIC(10,2) DEFAULT 0,
     valid_until DATE,
     description TEXT,
-    items JSONB DEFAULT '[]',
+    notes TEXT,
+    items JSONB DEFAULT '[]', -- Backup em JSON
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     created_by UUID REFERENCES users(id)
 );
 
+-- Itens do Orçamento (Tabela Relacional)
+CREATE TABLE IF NOT EXISTS quote_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    quote_id UUID NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    description TEXT,
+    quantity NUMERIC(10,2) NOT NULL DEFAULT 1,
+    unit_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+    subtotal NUMERIC(10,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==========================================
+-- 7. ESTOQUE AVANÇADO
+-- ==========================================
+
+-- Movimentações (Histórico)
 CREATE TABLE IF NOT EXISTS inventory_movements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     type VARCHAR(20) NOT NULL CHECK (type IN ('in', 'out', 'adjustment')),
     quantity NUMERIC(10,2) NOT NULL,
-    description TEXT,
+    reason VARCHAR(255), -- 'Venda', 'Compra', 'Ajuste'
+    notes TEXT, -- Observações opcionais
     created_at TIMESTAMP DEFAULT NOW(),
     created_by UUID REFERENCES users(id)
 );
 
+-- Entradas de Nota (Compras)
 CREATE TABLE IF NOT EXISTS product_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+    supplier_name VARCHAR(255), -- CORREÇÃO: Coluna Adicionada
     user_id UUID REFERENCES users(id),
     invoice_number VARCHAR(50),
+    invoice_url TEXT, -- CORREÇÃO: Coluna Adicionada
     entry_date TIMESTAMP DEFAULT NOW(),
     total_amount NUMERIC(10,2) DEFAULT 0,
     notes TEXT,
@@ -300,17 +344,18 @@ CREATE TABLE IF NOT EXISTS product_entries (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Itens da Entrada de Nota
 CREATE TABLE IF NOT EXISTS product_entry_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     entry_id UUID NOT NULL REFERENCES product_entries(id) ON DELETE CASCADE,
     product_id INTEGER REFERENCES products(id),
     quantity NUMERIC(10,2) NOT NULL,
-    cost_price NUMERIC(10,2) DEFAULT 0,
-    total NUMERIC(10,2) DEFAULT 0
+    unit_cost NUMERIC(10,2) DEFAULT 0, -- CORREÇÃO: Nome Ajustado (era cost_price)
+    subtotal NUMERIC(10,2) DEFAULT 0   -- CORREÇÃO: Nome Ajustado (era total)
 );
 
 -- ==========================================
--- 6. RECURSOS HUMANOS (RH) - IDs UUID
+-- 8. RECURSOS HUMANOS (RH)
 -- ==========================================
 
 CREATE TABLE IF NOT EXISTS departments (
@@ -348,7 +393,7 @@ CREATE TABLE IF NOT EXISTS employees (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Folha de Pagamento (NOVA)
+-- Folha de Pagamento
 CREATE TABLE IF NOT EXISTS payrolls (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -360,11 +405,12 @@ CREATE TABLE IF NOT EXISTS payrolls (
     net_salary NUMERIC(10,2) NOT NULL DEFAULT 0,
     status VARCHAR(20) DEFAULT 'draft',
     payment_date DATE,
-    details JSONB DEFAULT '{}',
+    details JSONB DEFAULT '{}', -- Detalhes de impostos e extras
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Recrutamento
 CREATE TABLE IF NOT EXISTS job_openings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -378,7 +424,7 @@ CREATE TABLE IF NOT EXISTS job_openings (
 );
 
 CREATE TABLE IF NOT EXISTS candidates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     job_opening_id UUID REFERENCES job_openings(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
@@ -391,7 +437,7 @@ CREATE TABLE IF NOT EXISTS candidates (
 );
 
 CREATE TABLE IF NOT EXISTS terminations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     employee_id UUID REFERENCES employees(id) ON DELETE CASCADE,
     termination_date DATE NOT NULL,
@@ -401,7 +447,7 @@ CREATE TABLE IF NOT EXISTS terminations (
 );
 
 CREATE TABLE IF NOT EXISTS hr_forms (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     description TEXT,
@@ -415,7 +461,7 @@ CREATE TABLE IF NOT EXISTS time_records (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-    record_type VARCHAR(20) NOT NULL,
+    record_type VARCHAR(20) NOT NULL, -- entry, lunch_out, lunch_in, exit
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     location_coords VARCHAR(100),
     ip_address VARCHAR(50),
@@ -424,11 +470,11 @@ CREATE TABLE IF NOT EXISTS time_records (
 );
 
 -- ==========================================
--- 7. CRM E PROJETOS
+-- 9. CRM E PROJETOS
 -- ==========================================
 
 CREATE TABLE IF NOT EXISTS client_projects (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
     title VARCHAR(100) NOT NULL,
@@ -442,7 +488,7 @@ CREATE TABLE IF NOT EXISTS client_projects (
 );
 
 CREATE TABLE IF NOT EXISTS client_interactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -453,7 +499,7 @@ CREATE TABLE IF NOT EXISTS client_interactions (
 );
 
 -- ==========================================
--- 8. PCP E AGENDA
+-- 10. PCP E AGENDA
 -- ==========================================
 
 CREATE TABLE IF NOT EXISTS calendar_events (
@@ -513,7 +559,7 @@ CREATE TABLE IF NOT EXISTS pcp_order_costs (
 );
 
 -- ==========================================
--- 9. HELPDESK
+-- 11. HELPDESK
 -- ==========================================
 
 CREATE TABLE IF NOT EXISTS helpdesk_config (
@@ -561,7 +607,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     status VARCHAR(50) DEFAULT 'open',
     priority VARCHAR(20) DEFAULT 'medium',
     category_id UUID REFERENCES ticket_categories(id),
-    requester_type VARCHAR(20) NOT NULL,
+    requester_type VARCHAR(20) NOT NULL, -- 'employee', 'support_user', 'user'
     requester_id UUID NOT NULL,
     assigned_agent_id UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -579,8 +625,41 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
 );
 
 -- ==========================================
--- 10. UTILITÁRIOS E AUDITORIA BLINDADA
+-- 12. UTILITÁRIOS E AUDITORIA
 -- ==========================================
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status VARCHAR(20) DEFAULT 'todo',
+    priority VARCHAR(20) DEFAULT 'normal',
+    due_date TIMESTAMP WITH TIME ZONE,
+    assigned_to UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    module VARCHAR(50) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    type VARCHAR(20) DEFAULT 'text',
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS custom_field_values (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    field_definition_id UUID REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+    entity_id TEXT NOT NULL, -- Permite ID numérico (OS) ou UUID
+    entity_type VARCHAR(50) NOT NULL,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS notifications (
     id SERIAL PRIMARY KEY,
@@ -592,20 +671,26 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabela de Auditoria com IDs em TEXTO
+-- Tabela de Auditoria (Blindada: IDs como TEXT)
 CREATE TABLE IF NOT EXISTS audit_logs (
     id SERIAL PRIMARY KEY,
-    tenant_id TEXT,
+    tenant_id TEXT, 
     table_name TEXT NOT NULL,
     operation TEXT NOT NULL,
     record_id TEXT,
     old_data JSONB,
     new_data JSONB,
     changed_by TEXT,
+    action TEXT, -- Opcional para compatibilidade legado
+    entity TEXT, -- Opcional para compatibilidade legado
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Função de Trigger Segura
+-- ==========================================
+-- 13. TRIGGERS E FUNÇÕES AUXILIARES
+-- ==========================================
+
+-- Função de Auditoria Automática
 CREATE OR REPLACE FUNCTION audit_trigger_function() RETURNS TRIGGER AS $$
 DECLARE
     rec_id TEXT;
@@ -628,6 +713,7 @@ BEGIN
 
     BEGIN app_user := current_setting('app.current_user'); EXCEPTION WHEN OTHERS THEN app_user := session_user; END;
 
+    -- Inserção segura, sem exigir colunas legadas
     INSERT INTO audit_logs (tenant_id, table_name, operation, record_id, old_data, new_data, changed_by)
     VALUES (tenant, TG_TABLE_NAME, op, rec_id, old_val, new_val, app_user);
 
@@ -635,7 +721,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger para bloquear movimentação de estoque de Serviços
+-- Função para Bloquear Movimentação de Estoque em Serviços
 CREATE OR REPLACE FUNCTION check_service_stock_movement() RETURNS TRIGGER AS $$
 DECLARE product_type VARCHAR;
 BEGIN

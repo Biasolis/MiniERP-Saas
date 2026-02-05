@@ -87,7 +87,9 @@ export default function Transactions() {
           api.get(`/transactions/summary${query}`)
       ]);
 
-      setTransactions(transRes.data);
+      // Garante que seja array mesmo se vier paginado
+      const transData = Array.isArray(transRes.data) ? transRes.data : (transRes.data.data || []);
+      setTransactions(transData);
       setSummary(sumRes.data);
     } catch (error) {
       console.error(error);
