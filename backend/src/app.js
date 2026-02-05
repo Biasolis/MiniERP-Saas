@@ -95,6 +95,8 @@ app.use('/api/auth', authRoutes);
 
 app.use('/api/tenants', tenantRoutes); // Para listas (Admin)
 app.use('/api/tenant', tenantRoutes);  // Para contexto da empresa logada
+app.use('/api/admin/tenants', tenantRoutes);
+app.use('/api/admin/tenant', tenantRoutes);
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/suppliers', supplierRoutes);

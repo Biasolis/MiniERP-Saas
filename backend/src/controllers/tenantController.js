@@ -1,8 +1,9 @@
 const { query } = require('../config/db');
-const { hashPassword } = require('../utils/security'); // Usa o seu utilitário existente
+const { hashPassword } = require('../utils/security');
+const jwt = require('jsonwebtoken');
 
 // ==========================================
-// 1. CONFIGURAÇÕES DA EMPRESA
+// 1. CONFIGURAÇÕES DA EMPRESA (TENANT LOGADO)
 // ==========================================
 const getTenantSettings = async (req, res) => {
     try {
@@ -62,7 +63,7 @@ const updateTenantSettings = async (req, res) => {
 };
 
 // ==========================================
-// 2. GESTÃO DE EQUIPE
+// 2. GESTÃO DE EQUIPE (USUÁRIOS DO TENANT)
 // ==========================================
 const getTeam = async (req, res) => {
     try {
@@ -85,7 +86,6 @@ const addMember = async (req, res) => {
 
         if (!name || !email || !password) return res.status(400).json({ message: 'Dados incompletos.' });
 
-        // Verifica Limite do Plano
         const tenantCheck = await query('SELECT max_users FROM tenants WHERE id = $1', [tenantId]);
         const countCheck = await query('SELECT COUNT(*) FROM users WHERE tenant_id = $1', [tenantId]);
         
@@ -93,14 +93,11 @@ const addMember = async (req, res) => {
             return res.status(403).json({ message: 'Limite de usuários atingido.' });
         }
 
-        // Verifica Email
         const check = await query('SELECT id FROM users WHERE email = $1', [email]);
         if (check.rows.length > 0) return res.status(400).json({ message: 'Email já está em uso.' });
 
-        // Hash da Senha
         const hashedPassword = await hashPassword(password);
         
-        // Validação de Role Segura
         const allowedRoles = ['admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte'];
         const safeRole = allowedRoles.includes(role) ? role : 'vendedor';
 
@@ -117,18 +114,15 @@ const addMember = async (req, res) => {
     }
 };
 
-// --- NOVA FUNÇÃO: EDITAR MEMBRO ---
 const updateMember = async (req, res) => {
     try {
         const tenantId = req.user.tenantId;
         const userId = req.params.id;
         const { name, email, role, password } = req.body;
 
-        // Verifica se o usuário pertence à empresa
         const userCheck = await query('SELECT id FROM users WHERE id = $1 AND tenant_id = $2', [userId, tenantId]);
         if (userCheck.rows.length === 0) return res.status(404).json({ message: 'Usuário não encontrado.' });
 
-        // Validação de Role Segura
         const allowedRoles = ['admin', 'vendedor', 'caixa', 'producao', 'financeiro', 'rh', 'suporte'];
         const safeRole = allowedRoles.includes(role) ? role : 'vendedor';
 
@@ -136,7 +130,6 @@ const updateMember = async (req, res) => {
         const params = [name, email, safeRole];
         let counter = 4;
 
-        // Só atualiza a senha se ela foi enviada e não estiver vazia
         if (password && password.trim() !== '') {
             const hashedPassword = await hashPassword(password);
             sql += `, password_hash = $${counter}`;
@@ -148,11 +141,8 @@ const updateMember = async (req, res) => {
         params.push(userId, tenantId);
 
         await query(sql, params);
-        
         return res.json({ message: 'Usuário atualizado com sucesso.' });
-
     } catch (error) {
-        console.error('Erro UpdateMember:', error);
         return res.status(500).json({ message: 'Erro ao atualizar usuário.' });
     }
 };
@@ -224,16 +214,80 @@ const deleteCustomField = async (req, res) => {
     }
 };
 
+// ==========================================
+// 4. ADMINISTRAÇÃO SAAS (SUPER ADMIN ONLY)
+// ==========================================
+
+const listAllTenants = async (req, res) => {
+    try {
+        const result = await query(`
+            SELECT t.*, 
+            (SELECT COUNT(*) FROM users WHERE tenant_id = t.id) as users_count
+            FROM tenants t 
+            ORDER BY t.created_at DESC
+        `);
+        return res.json(result.rows);
+    } catch (error) {
+        return res.status(500).json({ message: 'Erro ao listar empresas.' });
+    }
+};
+
+// --- FUNÇÃO PARA ACESSAR TENANT (IMPERSONATE) ---
+const impersonateTenant = async (req, res) => {
+    try {
+        const { id } = req.params; // ID do Tenant selecionado no painel Admin
+
+        // Busca o admin principal desse tenant
+        const userRes = await query(
+            'SELECT id, email, tenant_id, role FROM users WHERE tenant_id = $1 AND role = $2 LIMIT 1',
+            [id, 'admin']
+        );
+
+        if (userRes.rows.length === 0) {
+            return res.status(404).json({ message: 'Nenhum administrador encontrado para este tenant.' });
+        }
+
+        const user = userRes.rows[0];
+
+        // Gera Token JWT para o Admin do Tenant
+        const token = jwt.sign(
+            { id: user.id, email: user.email, tenantId: user.tenant_id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '2h' }
+        );
+
+        return res.json({ token, user });
+    } catch (error) {
+        console.error("Erro no Impersonate:", error);
+        return res.status(500).json({ message: 'Erro interno ao acessar tenant.' });
+    }
+};
+
+const deleteTenant = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await query('DELETE FROM tenants WHERE id = $1', [id]);
+        return res.json({ message: 'Empresa removida com sucesso.' });
+    } catch (error) {
+        return res.status(500).json({ message: 'Erro ao remover empresa.' });
+    }
+};
+
 module.exports = {
+    // Tenant Settings
     getTenantSettings, updateTenantSettings,
-    getTeam, addMember, updateMember, removeMember, // <--- Adicionado updateMember aqui
+    getSettings: getTenantSettings, updateSettings: updateTenantSettings,
+
+    // Team Management
+    getTeam, addMember, updateMember, removeMember,
+    getUsers: getTeam, createUser: addMember, updateUser: updateMember, deleteUser: removeMember,
+
+    // Custom Fields
     getCustomFields, saveCustomField, deleteCustomField,
-    // Aliases
-    getSettings: getTenantSettings,
-    updateSettings: updateTenantSettings,
-    getUsers: getTeam,
-    createUser: addMember,
-    updateUser: updateMember, // <--- Alias para rotas
-    deleteUser: removeMember,
-    createCustomField: saveCustomField
+    createCustomField: saveCustomField,
+
+    // SaaS Administration
+    listAllTenants,
+    impersonateTenant,
+    deleteTenant
 };

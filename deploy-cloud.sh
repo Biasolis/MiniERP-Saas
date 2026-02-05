@@ -4,7 +4,7 @@
 # CONFIGURAÇÕES INICIAIS
 # ==========================================
 DB_USER="minierpuser"
-DB_PASS="minierppass" # Recomendo alterar para algo forte
+DB_PASS="minierppass"
 DB_NAME="minierp"
 REPO_URL="https://github.com/Biasolis/minierp-saas.git"
 INSTALL_DIR="/var/www/minierp"
@@ -31,35 +31,28 @@ if [ -z "$DOMAIN_INPUT" ] || [ -z "$EMAIL_INPUT" ]; then
     exit 1
 fi
 
-# Limpa o domínio (remove http/https/barras)
 DOMAIN=$(echo "$DOMAIN_INPUT" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+# Importante: Definindo variável EMAIL para uso no final
+EMAIL=$EMAIL_INPUT
 
-echo -e "${GREEN}>>> Instalação iniciada para: https://$DOMAIN${NC}"
+echo -e "${GREEN}>>> Instalação para: https://$DOMAIN ($EMAIL)${NC}"
 sleep 2
 
 # ==========================================
 # 1. ATUALIZAÇÃO E DEPENDÊNCIAS
 # ==========================================
-echo -e "${YELLOW}>>> [1/9] Atualizando Sistema e Instalando Dependências...${NC}"
+echo -e "${YELLOW}>>> [1/9] Preparando Sistema...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq && apt-get upgrade -y -qq
-
-# Instala essenciais + Nginx + Certbot
 apt-get install -y curl git build-essential wget unzip nginx certbot python3-certbot-nginx -qq
-
-# Limpa instalações antigas do Node
 dpkg --remove --force-all libnode-dev libnode72 2>/dev/null
 apt-get remove -y nodejs nodejs-doc npm 2>/dev/null
 apt-get autoremove -y -qq
 
-# Instala Node v20
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs postgresql postgresql-contrib -qq
-
-# Instala Gerenciador de Processos
 npm install -g pm2 serve
 
-# Inicia serviços
 systemctl start postgresql
 systemctl enable postgresql
 systemctl start nginx
@@ -72,7 +65,6 @@ echo -e "${YELLOW}>>> [2/9] Configurando PostgreSQL...${NC}"
 sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" 2>/dev/null || true
 sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" 2>/dev/null || true
 sudo -u postgres psql -c "ALTER USER $DB_USER CREATEDB;"
-# Extensões
 sudo -u postgres psql -d $DB_NAME -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS "pgcrypto";'
 
 # ==========================================
@@ -83,7 +75,6 @@ mkdir -p /var/www
 cd /var/www
 
 if [ -d "$INSTALL_DIR" ]; then
-    echo "Backup da versão anterior..."
     mv $INSTALL_DIR "${INSTALL_DIR}_backup_$(date +%s)"
 fi
 
@@ -98,25 +89,17 @@ cd $INSTALL_DIR/backend
 npm install --silent
 mkdir -p uploads && chmod 777 uploads
 
-# Gera Token Seguro
 GENERATED_JWT=$(openssl rand -hex 32)
 
-# Copia e Ajusta .env
 if [ -f ".env.example" ]; then
     cp .env.example .env
-    # Substituições
     sed -i "s|DATABASE_URL=.*|DATABASE_URL=postgresql://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME|g" .env
     sed -i "s|PORT=.*|PORT=3000|g" .env
     sed -i "s|JWT_SECRET=.*|JWT_SECRET=$GENERATED_JWT|g" .env
     sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=https://$DOMAIN|g" .env
     sed -i "s|NODE_ENV=.*|NODE_ENV=production|g" .env
-    
-    # Adiciona STORAGE se não existir
-    if ! grep -q "STORAGE_TYPE" .env; then
-        echo "STORAGE_TYPE=local" >> .env
-    fi
+    if ! grep -q "STORAGE_TYPE" .env; then echo "STORAGE_TYPE=local" >> .env; fi
 else
-    # Fallback se não tiver example
     cat > .env <<EOF
 PORT=3000
 DATABASE_URL=postgresql://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME
@@ -127,16 +110,26 @@ STORAGE_TYPE=local
 EOF
 fi
 
-# Ajuste Trust Proxy (Vital para Nginx)
 sed -i "/const app = express();/a app.set('trust proxy', 1);" src/app.js 2>/dev/null || true
 
 # ==========================================
-# 5. ESTRUTURA E SEED
+# 5. ESTRUTURA E PERMISSÕES (CORREÇÃO AQUI)
 # ==========================================
-echo -e "${YELLOW}>>> [5/9] Populando Banco de Dados...${NC}"
+echo -e "${YELLOW}>>> [5/9] Populando Banco...${NC}"
 cd $INSTALL_DIR
 sudo -u postgres psql -d $DB_NAME -f database/init.sql 2>/dev/null || true
 sudo -u postgres psql -d $DB_NAME -f database/seed.sql 2>/dev/null || true
+
+# --- CORREÇÃO DE PERMISSÕES ---
+echo "Aplicando permissões para $DB_USER..."
+sudo -u postgres psql -d $DB_NAME -c "
+GRANT USAGE ON SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
+"
+# ------------------------------
 
 # ==========================================
 # 6. FRONTEND SETUP
@@ -147,13 +140,11 @@ npm install --silent
 
 if [ -f ".env.example" ]; then
     cp .env.example .env.production
-    # Aponta para o Nginx (/api) e não porta 3000 direta
     sed -i "s|VITE_API_URL=.*|VITE_API_URL=https://$DOMAIN/api|g" .env.production
 else
     echo "VITE_API_URL=https://$DOMAIN/api" > .env.production
 fi
 
-# Build
 npm run build
 
 # ==========================================
@@ -162,13 +153,21 @@ npm run build
 echo -e "${YELLOW}>>> [7/9] Iniciando Processos...${NC}"
 cd $INSTALL_DIR
 
+# Detecção Automática do Arquivo de Entrada
+BACKEND_SCRIPT="src/server.js"
+if [ ! -f "backend/src/server.js" ]; then
+    if [ -f "backend/server.js" ]; then
+        BACKEND_SCRIPT="server.js"
+    fi
+fi
+
 cat > ecosystem.config.js <<EOF
 module.exports = {
   apps: [
     {
       name: "minierp-backend",
       cwd: "./backend",
-      script: "src/server.js",
+      script: "$BACKEND_SCRIPT",
       env: { NODE_ENV: "production" },
     },
     {
@@ -192,20 +191,16 @@ pm2 save
 pm2 startup | tail -n 1 > /tmp/pm2_startup_cmd && chmod +x /tmp/pm2_startup_cmd && /tmp/pm2_startup_cmd
 
 # ==========================================
-# 8. NGINX (CONFIGURAÇÃO)
+# 8. NGINX
 # ==========================================
 echo -e "${YELLOW}>>> [8/9] Configurando Nginx...${NC}"
 
-# Cria arquivo de config do Nginx
 cat > /etc/nginx/sites-available/minierp <<EOF
 server {
     server_name $DOMAIN;
-
-    # Logs
     access_log /var/log/nginx/minierp_access.log;
     error_log /var/log/nginx/minierp_error.log;
 
-    # Frontend (Proxy para o PM2 Serve na porta 5173)
     location / {
         proxy_pass http://127.0.0.1:5173;
         proxy_http_version 1.1;
@@ -215,11 +210,8 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Backend API (Proxy para o Node na porta 3000)
     location /api/ {
-        # Remove o /api da URL antes de enviar para o backend
         rewrite ^/api/(.*) /\$1 break;
-        
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -233,7 +225,6 @@ server {
 }
 EOF
 
-# Ativa o site e remove o default
 rm -f /etc/nginx/sites-enabled/default
 ln -sf /etc/nginx/sites-available/minierp /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
@@ -242,20 +233,14 @@ nginx -t && systemctl reload nginx
 # 9. SSL (LET'S ENCRYPT)
 # ==========================================
 echo -e "${YELLOW}>>> [9/9] Gerando Certificado SSL (HTTPS)...${NC}"
-
-# Configura Firewall Básico (UFW) se estiver ativo
 if command -v ufw >/dev/null; then
     ufw allow 'Nginx Full'
     ufw allow OpenSSH
-    # ufw enable # Descomente se quiser forçar a ativação (cuidado para não se trancar fora)
 fi
 
-# Roda Certbot Automático
+# Usa a variável $EMAIL que definimos no início
 certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL --redirect
 
 echo -e "${GREEN}==============================================${NC}"
 echo -e "${GREEN}   INSTALAÇÃO FINALIZADA!                     ${NC}"
-echo -e "${GREEN}==============================================${NC}"
 echo -e "Acesse: https://$DOMAIN"
-echo -e "Status do PM2: 'pm2 status'"
-echo -e "Logs do Nginx: '/var/log/nginx/'"

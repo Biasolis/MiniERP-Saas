@@ -1,11 +1,12 @@
 const superAdminMiddleware = (req, res, next) => {
-    // O authMiddleware já rodou antes e populou req.user
-    if (!req.user || !req.user.isSuperAdmin) {
+    // Verifica se o usuário logado (pelo authMiddleware) é super admin
+    if (req.user && (req.user.is_super_admin === true || req.user.role === 'super_admin')) {
+        next();
+    } else {
         return res.status(403).json({ 
-            message: 'Acesso negado. Apenas Super Admins podem realizar esta ação.' 
+            message: 'Acesso negado. Requer privilégios de Super Administrador.' 
         });
     }
-    next();
 };
 
 module.exports = superAdminMiddleware;
